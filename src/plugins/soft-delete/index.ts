@@ -23,39 +23,14 @@ import { version } from './version';
 const isRecord = (value: unknown): value is MutableRecord =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
-// Writes with an empty `where` are no-ops in the core. Adding the visibility
-// filter to one would turn it into a write over every live row.
+// Writes with an empty `where` are no-ops in the core; a soft delete must
+// not turn one into an update.
 const hasCondition = (where: unknown): boolean => {
 	if (where === undefined) return false;
 	if (Array.isArray(where)) return where.some(hasCondition);
 	if (!isRecord(where)) return true;
 	for (const key in where) if (hasCondition(where[key])) return true;
 	return false;
-};
-
-const WRITE_KINDS = new Set<string>([
-	'delete',
-	'deleteMany',
-	'update',
-	'updateEach',
-	'updateMany',
-]);
-
-const buildDeletedWhere = (
-	where: unknown,
-	column: string,
-	visibility: SoftDeleteVisibility,
-) => {
-	const deletedWhere =
-		visibility === 'only'
-			? { [column]: { not: null } }
-			: { [column]: null };
-
-	return where
-		? {
-				AND: [where, deletedWhere],
-			}
-		: deletedWhere;
 };
 
 const createRestoreExtension = <
@@ -75,15 +50,17 @@ const createRestoreExtension = <
 
 	return {
 		restore(args) {
-			return client.$withoutPlugins().update({
+			return client.$withoutPlugins({ keepScopes: true }).update({
 				...args,
 				data,
+				deleted: 'with',
 			} as UpdateArgs<Schema, Name, Meta> as never);
 		},
 		restoreById(id, args) {
-			return client.$withoutPlugins().update({
+			return client.$withoutPlugins({ keepScopes: true }).update({
 				...args,
 				data,
+				deleted: 'with',
 				where: { id } as unknown as WhereArg<Schema, Name>,
 			} as UpdateArgs<Schema, Name, Meta> as never);
 		},
@@ -105,24 +82,6 @@ const deleteArgs = {
 	mode: undefined as SoftDeleteMode | undefined,
 };
 
-// Every operation with a `where`. upsert/upsertMany stay unfiltered: hiding a
-// deleted row there would turn the update branch into a duplicate insert.
-const FILTERED_KINDS = new Set<string>([
-	'count',
-	'cursor',
-	'delete',
-	'deleteMany',
-	'exists',
-	'findFirst',
-	'findMany',
-	'findOne',
-	'findUnique',
-	'paginate',
-	'update',
-	'updateEach',
-	'updateMany',
-]);
-
 export const softDelete = (options: SoftDeleteOptions = {}) => {
 	const column = options.column ?? DEFAULT_COLUMN;
 	const deletedByColumn =
@@ -130,6 +89,8 @@ export const softDelete = (options: SoftDeleteOptions = {}) => {
 	const defaultMode = options.defaults?.mode ?? DEFAULT_MODE;
 	const defaultVisibility =
 		options.defaults?.visibility ?? DEFAULT_VISIBILITY;
+	const live = { [column]: null };
+	const deletedOnly = { [column]: { not: null } };
 
 	return definePlugin<
 		SoftDeleteOptions,
@@ -179,9 +140,11 @@ export const softDelete = (options: SoftDeleteOptions = {}) => {
 				)
 					return;
 
-				const mode = context.args.mode ?? defaultMode;
-
-				if (mode === 'hard') return;
+				// `root()` only sees the args, so a default hard mode is made explicit.
+				if ((context.args.mode ?? defaultMode) === 'hard') {
+					context.args.mode = 'hard';
+					return;
+				}
 
 				const timestamp = context.model.columns[
 					column
@@ -203,29 +166,30 @@ export const softDelete = (options: SoftDeleteOptions = {}) => {
 				)
 					data[deletedByColumn] = context.args.deletedBy;
 
-				// Hooks run before transforms, so the visibility filter is applied
-				// here: a soft delete never re-stamps an already deleted row.
-				const visibility = context.args.deleted ?? 'without';
-				const where = (
-					visibility === 'with'
-						? context.where
-						: buildDeletedWhere(context.where, column, visibility)
-				) as WhereArg<typeof context.schema, typeof context.table>;
+				// The visibility filter comes from the scope `root()` through
+				// `deleted`: a soft delete never re-stamps an already deleted row.
+				// `keepScopes` keeps other scopes (a tenant) on the update.
+				const target = context.client.$withoutPlugins({
+					keepScopes: true,
+				});
+				const deleted = context.args.deleted ?? 'without';
 
 				if (context.kind === 'deleteMany')
-					return context.client.$withoutPlugins().updateMany({
-						select: context.select,
+					return target.updateMany({
 						data,
+						deleted,
 						meta: context.meta,
-						where,
+						select: context.select,
+						where: context.where,
 					} as never);
 
-				return context.client.$withoutPlugins().update({
+				return target.update({
+					data,
+					deleted,
 					include: context.include,
 					meta: context.meta,
 					select: context.select,
-					data,
-					where,
+					where: context.where,
 				} as never);
 			},
 		},
@@ -239,38 +203,28 @@ export const softDelete = (options: SoftDeleteOptions = {}) => {
 			);
 		},
 		options,
-		transform(operation) {
-			if (
-				!FILTERED_KINDS.has(operation.kind) ||
-				!operation.model.hasColumn(column) ||
-				(WRITE_KINDS.has(operation.kind) &&
-					!hasCondition(operation.where))
-			)
-				return operation;
-
-			const args = operation.args as {
-				deleted?: SoftDeleteVisibility;
-				mode?: SoftDeleteMode;
-			};
-			// A hard delete purges whatever matches unless `deleted` narrows it.
-			if (
-				(operation.kind === 'delete' ||
-					operation.kind === 'deleteMany') &&
-				(args.mode ?? defaultMode) === 'hard' &&
-				args.deleted === undefined
-			)
-				return operation;
-			const visibility = args.deleted ?? defaultVisibility;
-
-			if (visibility === 'with') return operation;
-
-			operation.where = buildDeletedWhere(
-				operation.where,
-				column,
-				visibility,
-			) as typeof operation.where;
-
-			return operation;
+		// Nested reads (relations, filters, `_count`, sorts) always use the
+		// static `where`; `root()` maps the root `deleted` argument. Upserts
+		// stay unfiltered: hiding a deleted row would turn the update branch
+		// into a duplicate insert.
+		scope: {
+			key: 'softDelete',
+			model: (model) =>
+				model.hasColumn(column)
+					? { upsert: false, where: live }
+					: undefined,
+			root(args) {
+				const deleted = args.deleted as
+					| SoftDeleteVisibility
+					| undefined;
+				if (deleted === undefined) {
+					// A hard delete purges whatever matches unless `deleted` narrows it.
+					if (args.mode === 'hard') return null;
+					return defaultVisibility === 'with' ? null : undefined;
+				}
+				if (deleted === 'with') return null;
+				return deleted === 'only' ? deletedOnly : undefined;
+			},
 		},
 		version,
 	});
