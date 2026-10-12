@@ -16,6 +16,7 @@ export default defineConfig({
 		eslint: 'src/plugins/eslint/index.ts',
 		rules: 'src/plugins/rules/index.ts',
 		'soft-delete': 'src/plugins/soft-delete/index.ts',
+		tenant: 'src/plugins/tenant/index.ts',
 		timestamps: 'src/plugins/timestamps/index.ts',
 		uuid: 'src/plugins/uuid/index.ts',
 		'uuid/mysql': 'src/plugins/uuid/mysql.ts',

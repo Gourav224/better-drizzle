@@ -14,6 +14,7 @@
 			"better-drizzle/soft-delete": [
 				"./src/plugins/soft-delete/index.ts"
 			],
+			"better-drizzle/tenant": ["./src/plugins/tenant/index.ts"],
 			"better-drizzle/timestamps": ["./src/plugins/timestamps/index.ts"],
 			"better-drizzle/uuid": ["./src/plugins/uuid/index.ts"],
 			"better-drizzle/uuid/mysql": ["./src/plugins/uuid/mysql.ts"],

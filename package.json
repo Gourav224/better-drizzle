@@ -6,6 +6,7 @@
 		"bun",
 		"drizzle",
 		"drizzle-orm",
+		"multi-tenancy",
 		"mysql",
 		"nodejs",
 		"orm",
@@ -17,9 +18,11 @@
 		"relations",
 		"repository",
 		"repository-pattern",
+		"row-level-security",
 		"soft-delete",
 		"sql",
 		"sqlite",
+		"tenant",
 		"transactions",
 		"type-safe",
 		"typescript",
@@ -127,6 +130,16 @@
 				"default": "./dist/soft-delete.cjs"
 			}
 		},
+		"./tenant": {
+			"import": {
+				"types": "./dist/tenant.d.ts",
+				"default": "./dist/tenant.js"
+			},
+			"require": {
+				"types": "./dist/tenant.d.cts",
+				"default": "./dist/tenant.cjs"
+			}
+		},
 		"./timestamps": {
 			"import": {
 				"types": "./dist/timestamps.d.ts",
@@ -194,7 +207,7 @@
 		"docs:dev": "bun run --filter @better-drizzle/web dev",
 		"docs:build": "bun run --filter @better-drizzle/web build",
 		"pack": "bun run build && npm pack --dry-run --ignore-scripts",
-		"test": "bun test tests/core tests/rules tests/eslint tests/timestamps tests/uuid tests/soft-delete tests/zod tests/ata tests/cache",
+		"test": "bun test tests/core tests/rules tests/eslint tests/timestamps tests/uuid tests/soft-delete tests/tenant tests/zod tests/ata tests/cache",
 		"test:mysql": "bun test tests/core/where.mysql.test.ts",
 		"test:databases": "bun test .pg.test.ts .mysql.test.ts .redis.test.ts",
 		"test:integration": "bun test tests/core/integration",
