@@ -11,6 +11,8 @@ import type {
 	PluginHookKind,
 	PluginMeta,
 	PluginModelInfo,
+	PluginScopeDefinition,
+	PluginScopeModel,
 	QueryArgs,
 } from '.';
 import type { TransactionOptions } from './transaction';
@@ -206,6 +208,8 @@ export type TableRuntime = {
 	>;
 	/** Set of relation names defined on this table. */
 	relationNames: Set<string>;
+	/** Model scopes declared by plugins for this table; shared empty array when none. */
+	scopes: readonly ScopeEntry[];
 	/** The Drizzle table instance. */
 	table: Table;
 	/** The full relational config for this table. */
@@ -214,6 +218,14 @@ export type TableRuntime = {
 	uniqueKeys: string[][];
 	/** Declared relations Better Drizzle cannot load, with the reason. */
 	unsupportedRelations: Record<string, string>;
+};
+
+/**
+ * A plugin scope definition paired with its resolved scope for one table.
+ */
+export type ScopeEntry = {
+	definition: PluginScopeDefinition;
+	model: PluginScopeModel;
 };
 
 /**
@@ -380,6 +392,10 @@ export type RuntimeContext<
 	options: BetterClientOptions<Schema, Meta, any>;
 	/** Default metadata merged into every scoped operation. */
 	scopedMeta: Meta | undefined;
+	/** Model scope state keyed by scope key; `undefined` when no plugin declares a scope. */
+	scopes: Readonly<Record<string, unknown>> | undefined;
+	/** Set by `$withoutPlugins()` on delegates whose scopes were dropped. */
+	scopesDisabled: boolean;
 	/** Precomputed plugin buckets and metadata. */
 	plugins: {
 		byKind: Record<PluginHookKind, PluginRuntimeBucket>;

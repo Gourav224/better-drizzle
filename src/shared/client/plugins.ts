@@ -436,6 +436,7 @@ const createOperationInput = <
 		model: runtime.model,
 		options: context.options,
 		schema: context.fullSchema,
+		scopes: context.scopes,
 		state,
 		table: tableName,
 		transaction: context.transaction
@@ -627,36 +628,38 @@ export const initializePlugins = <
 			const override = generated.models?.[model.name];
 			if (override === false) continue;
 
-			const key = override ?? generated.column;
-			const column = model.columns[key];
-			if (!column) {
-				if (override === undefined) continue;
-				throw new BetterDrizzleError({
-					code: BetterDrizzleErrorCode.PluginRequiredColumnMissing,
-					column: key,
-					message: `Plugin "${plugin.id}" requires column "${key}" on model "${model.name}".`,
-					table: model.name,
-					details: { pluginId: plugin.id },
-				});
-			}
+			const keys = override ?? generated.column;
+			for (const key of typeof keys === 'string' ? [keys] : keys) {
+				const column = model.columns[key];
+				if (!column) {
+					if (override === undefined) continue;
+					throw new BetterDrizzleError({
+						code: BetterDrizzleErrorCode.PluginRequiredColumnMissing,
+						column: key,
+						message: `Plugin "${plugin.id}" requires column "${key}" on model "${model.name}".`,
+						table: model.name,
+						details: { pluginId: plugin.id },
+					});
+				}
 
-			if (generated.accepts && !generated.accepts(column)) {
-				if (override === undefined) continue;
-				throw new BetterDrizzleError({
-					code: BetterDrizzleErrorCode.PluginRequiredColumnType,
-					column: key,
-					message: `Plugin "${plugin.id}" cannot generate column "${key}" on model "${model.name}" (${column.columnType}, ${column.dataType}).`,
-					table: model.name,
-					details: {
-						columnType: column.columnType,
-						dataType: column.dataType,
-						pluginId: plugin.id,
-					},
-				});
-			}
+				if (generated.accepts && !generated.accepts(column)) {
+					if (override === undefined) continue;
+					throw new BetterDrizzleError({
+						code: BetterDrizzleErrorCode.PluginRequiredColumnType,
+						column: key,
+						message: `Plugin "${plugin.id}" cannot generate column "${key}" on model "${model.name}" (${column.columnType}, ${column.dataType}).`,
+						table: model.name,
+						details: {
+							columnType: column.columnType,
+							dataType: column.dataType,
+							pluginId: plugin.id,
+						},
+					});
+				}
 
-			if (!model.generated.includes(key))
-				(model.generated as string[]).push(key);
+				if (!model.generated.includes(key))
+					(model.generated as string[]).push(key);
+			}
 		}
 	}
 
@@ -888,17 +891,27 @@ export const applyClientExtensions = <
 >(
 	context: RuntimeContext<Schema, Meta, Plugins>,
 	client: BetterDrizzleClient<Schema, Meta, Plugins>,
+	withScope: (
+		key: string,
+		state: unknown,
+		meta?: Record<string, unknown>,
+	) => BetterDrizzleClient<Schema, Meta, Plugins>,
 ) => {
 	const plugins: readonly AnyPlugin[] = context.options.plugins ?? [];
 
 	for (const plugin of plugins) {
-		const extension = plugin.extendClient?.({
+		if (!plugin.extendClient) continue;
+		const key = plugin.scope?.key;
+		const extension = plugin.extendClient({
 			client,
 			db: context.db,
 			dialect: context.dialect,
 			models: context.models as never,
 			plugin: getPluginMeta(plugin),
 			schema: context.fullSchema,
+			scope: key === undefined ? undefined : context.scopes?.[key],
+			withScope: (state, meta) =>
+				withScope(key ?? plugin.id, state, meta),
 		});
 		if (!extension) continue;
 

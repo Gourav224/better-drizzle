@@ -1,4 +1,4 @@
-import type { AnyColumn } from 'drizzle-orm';
+import type { AnyColumn, SQL } from 'drizzle-orm';
 
 import type {
 	AnySchema,
@@ -105,10 +105,10 @@ export type PluginConfig = {
  *   not accept it stay required.
  */
 export type PluginGeneratedColumns<
-	Column extends string = string,
-	Models extends Readonly<Record<string, string | false>> = Readonly<
-		Record<string, string | false>
-	>,
+	Column extends string | readonly string[] = string | readonly string[],
+	Models extends Readonly<
+		Record<string, string | readonly string[] | false>
+	> = Readonly<Record<string, string | readonly string[] | false>>,
 	Value = unknown,
 > = {
 	/**
@@ -116,9 +116,9 @@ export type PluginGeneratedColumns<
 	 * rejected are skipped; a rejected override throws.
 	 */
 	accepts?(column: AnyColumn): boolean;
-	/** Column key filled on every model that has it. */
+	/** Column keys filled on every model that has them. */
 	column: Column;
-	/** Overrides keyed by table key: a column key, or `false` to skip the model. Overridden columns must exist. */
+	/** Overrides keyed by table key: column keys, or `false` to skip the model. Overridden columns must exist. */
 	models?: Models;
 	/** Type-only: carries `Value`; never read at runtime. */
 	readonly value?: Value;
@@ -182,6 +182,55 @@ export type PluginModelRelation = {
 	model: string;
 	/** Junction table key for `.through()` relations. */
 	through?: string;
+};
+
+/**
+ * Scope of one model, resolved once at bootstrap by
+ * {@link PluginScopeDefinition.model}. The core ANDs it into every statement
+ * that reads or writes the model, nested relation stages included.
+ */
+export type PluginScopeModel = {
+	/** Columns matched by equality against the scope state (`{ [column]: value }`). */
+	columns?: readonly string[];
+	/** Rejects updates that change `columns`. */
+	immutable?: boolean;
+	/** `columns` also match `NULL`. */
+	nullable?: boolean;
+	/** Writes the state values of `columns` on insert and rejects other values. */
+	stamp?: boolean;
+	/** Applies the scope to upsert conflict updates. Defaults to `true`. */
+	upsert?: boolean;
+	/** Static filter, in the structured `where` shape, applied while the scope is active. */
+	where?: Record<string, unknown>;
+};
+
+/**
+ * Declares a model scope. The client carries one state value per scope
+ * `key`; `$withoutPlugins()` drops every state unless `keepScopes` is set.
+ *
+ * @typeParam State - Value stored under `key` in the client scope state.
+ */
+export type PluginScopeDefinition<State = unknown> = {
+	/** Meta merged into operations when `$withoutPlugins()` drops a set state. */
+	bypass?(state: State): Record<string, unknown> | undefined;
+	/** Key of this scope in the client scope state. */
+	key: string;
+	/** Error for a write that sets a scoped column to another value. */
+	mismatch?(model: PluginModelInfo, column: string): Error;
+	/** Error for `columns` without a state value; `undefined` leaves them unfiltered. */
+	missing?(
+		model: PluginModelInfo,
+		columns: readonly string[],
+	): Error | undefined;
+	/** Resolves the scope of one model; `undefined` leaves it unscoped. */
+	model(model: PluginModelInfo): PluginScopeModel | undefined;
+	/** Root-query override of `where` from the operation args; `null` drops it. */
+	root?(
+		args: Record<string, unknown>,
+		model: PluginModelInfo,
+	): Record<string, unknown> | null | undefined;
+	/** Statements run at the start of each transaction while the state is set. */
+	session?(state: State, dialect: PluginDialect): SQL[] | undefined;
 };
 
 /**
@@ -386,6 +435,8 @@ type PluginOperationInputBase<
 		? Cursor
 		: never;
 	schema: Schema;
+	/** Active model scope state keyed by scope key; `undefined` without scopes. */
+	scopes: Readonly<Record<string, unknown>> | undefined;
 	select?: PluginOperationArgsMap<
 		Schema,
 		Name,
@@ -674,6 +725,8 @@ export type PluginRawHookContext<
 	result: Result;
 	/** The full Drizzle schema object. */
 	schema: Schema;
+	/** Active model scope state keyed by scope key; `undefined` without scopes. */
+	scopes: Readonly<Record<string, unknown>> | undefined;
 	/** Optional AbortSignal for query cancellation. */
 	signal?: AbortSignal;
 	/** The Drizzle SQL object (before rendering to string). */
@@ -1024,6 +1077,16 @@ export type PluginClientExtensionContext<
 	models: ModelRegistry<Schema>;
 	plugin: PluginMeta;
 	schema: Schema;
+	/** This plugin's scope state on the client, when it declares a `scope`. */
+	scope: unknown;
+	/**
+	 * Returns a client whose scope state for this plugin is `state`
+	 * (`undefined` clears it), with `meta` merged into its default meta.
+	 */
+	withScope(
+		state: unknown,
+		meta?: Record<string, unknown>,
+	): BetterDrizzleClient<Schema, Meta, Plugins>;
 };
 
 /**
@@ -1046,6 +1109,7 @@ export interface Plugin<
 		never
 	>,
 	ModelExtensionResolver = never,
+	ClientExtensionResolver = never,
 > extends PluginMeta<Options> {
 	/** Static configuration controlling dialect support and model requirements. */
 	config?: PluginConfig;
@@ -1058,7 +1122,19 @@ export interface Plugin<
 		Plugins extends readonly AnyPlugin[],
 	>(
 		context: PluginClientExtensionContext<Schema, Meta, Plugins>,
-	): ClientExtension | undefined;
+	):
+		| ClientExtension
+		| ClientExtensionOfResolver<
+				ClientExtensionResolver,
+				Schema,
+				Meta,
+				Plugins
+		  >
+		| undefined;
+	/** Model scope applied by the core to every statement on scoped models. */
+	scope?: PluginScopeDefinition;
+	/** Type-only: carries the client extension resolver; never read at runtime. */
+	readonly clientExtensionResolver?: ClientExtensionResolver;
 	/** Extends each model delegate with additional methods and properties. */
 	extendModel?<
 		Schema extends AnySchema,
@@ -1113,7 +1189,7 @@ export interface Plugin<
  */
 // oxlint-disable-next-line typescript/no-explicit-any -- Intentionally erase plugin generics for constraints.
 type Any = any;
-export type AnyPlugin = Plugin<Any, Any, Any, Any, Any, Any>;
+export type AnyPlugin = Plugin<Any, Any, Any, Any, Any, Any, Any>;
 
 type PluginDefinition<
 	Options,
@@ -1122,6 +1198,7 @@ type PluginDefinition<
 	State extends PluginState,
 	OperationArgs extends Partial<PluginOperationArgsExtensionMap>,
 	ModelExtensionResolver,
+	ClientExtensionResolver,
 > = Omit<
 	Plugin<
 		Options,
@@ -1129,7 +1206,8 @@ type PluginDefinition<
 		ModelExtension,
 		State,
 		OperationArgs,
-		ModelExtensionResolver
+		ModelExtensionResolver,
+		ClientExtensionResolver
 	>,
 	'hooks' | 'operationArgs' | 'setup' | 'transform'
 > & {
@@ -1176,6 +1254,45 @@ export interface ModelExtensionTypeResolver {
 	readonly extension: unknown;
 }
 
+/**
+ * Type-level resolver for client extensions, like
+ * {@link ModelExtensionTypeResolver}. Better Drizzle fills in `schema`,
+ * `meta`, and `plugins` for the client; `extension` computes the properties
+ * the plugin adds.
+ *
+ * @example
+ * ```ts
+ * interface TablesExtension extends ClientExtensionTypeResolver {
+ *   readonly extension: { tables: readonly (keyof this['schema'])[] };
+ * }
+ * ```
+ */
+export interface ClientExtensionTypeResolver {
+	readonly schema: unknown;
+	readonly meta: unknown;
+	readonly plugins: unknown;
+	readonly extension: unknown;
+}
+
+type ClientExtensionOfResolver<
+	Resolver,
+	Schema extends AnySchema,
+	Meta,
+	Plugins extends readonly AnyPlugin[],
+> = [Resolver] extends [never]
+	? Record<never, never>
+	: Resolver extends ClientExtensionTypeResolver
+		? (Resolver & {
+				readonly schema: Schema;
+				readonly meta: Meta;
+				readonly plugins: Plugins;
+			})['extension'] extends infer Extension
+			? Extension extends Record<string, unknown>
+				? Extension
+				: Record<never, never>
+			: Record<never, never>
+		: Record<never, never>;
+
 type ModelExtensionOfResolver<
 	Resolver,
 	Schema extends AnySchema,
@@ -1213,16 +1330,24 @@ type ModelExtensionOfResolver<
  *
  * @typeParam PluginDef - The plugin type to extract from.
  */
-export type ClientExtensionOf<PluginDef> =
+export type ClientExtensionOf<
+	PluginDef,
+	Schema extends AnySchema = AnySchema,
+	Meta = BetterMeta,
+	Plugins extends readonly AnyPlugin[] = readonly AnyPlugin[],
+> =
 	PluginDef extends Plugin<
 		infer _Options,
 		infer Extension,
 		infer _ModelExtension,
 		infer _State,
 		infer _OperationArgs,
-		infer _Resolver
+		infer _Resolver,
+		infer Resolver
 	>
-		? Extension
+		? [Resolver] extends [never]
+			? Extension
+			: ClientExtensionOfResolver<Resolver, Schema, Meta, Plugins>
 		: Record<never, never>;
 
 /**
@@ -1243,7 +1368,8 @@ export type ModelExtensionOf<
 		infer Extension,
 		infer _State,
 		infer _OperationArgs,
-		infer Resolver
+		infer Resolver,
+		infer _ClientResolver
 	>
 		? (Extension extends Record<string, unknown>
 				? Extension
@@ -1269,6 +1395,8 @@ export type OperationArgsOf<PluginDef> =
 		? OperationArgs
 		: Record<never, never>;
 
+type ColumnKeys<Column> = Column extends readonly (infer Key)[] ? Key : Column;
+
 type GeneratedColumnOf<Generated, Name extends string, Insert> =
 	Generated extends PluginGeneratedColumns<
 		infer Column,
@@ -1277,16 +1405,16 @@ type GeneratedColumnOf<Generated, Name extends string, Insert> =
 	>
 		? Extract<
 				string extends keyof Models
-					? string extends Column
+					? string extends ColumnKeys<Column>
 						? never
-						: Column
+						: ColumnKeys<Column>
 					: Name extends keyof Models
-						? Models[Name] extends string
-							? Models[Name]
-							: never
-						: string extends Column
+						? Models[Name] extends false
 							? never
-							: Column,
+							: ColumnKeys<Models[Name]>
+						: string extends ColumnKeys<Column>
+							? never
+							: ColumnKeys<Column>,
 				{
 					[K in keyof Insert]-?: NonNullable<Insert[K]> extends Value
 						? K
@@ -1335,9 +1463,13 @@ export type UnionToIntersection<Value> = (
  *
  * @typeParam Plugins - The plugin tuple.
  */
-export type ClientExtensionsOf<Plugins extends readonly AnyPlugin[]> =
+export type ClientExtensionsOf<
+	Plugins extends readonly AnyPlugin[],
+	Schema extends AnySchema = AnySchema,
+	Meta = BetterMeta,
+> =
 	UnionToIntersection<
-		ClientExtensionOf<Plugins[number]>
+		ClientExtensionOf<Plugins[number], Schema, Meta, Plugins>
 	> extends infer Extension
 		? Extension extends Record<string, unknown>
 			? Extension
@@ -1439,6 +1571,7 @@ export const definePlugin = <
 	const OperationArgs extends Partial<PluginOperationArgsExtensionMap> =
 		Record<never, never>,
 	const ModelExtensionResolver = never,
+	const ClientExtensionResolver = never,
 >(
 	plugin: PluginDefinition<
 		Options,
@@ -1446,7 +1579,8 @@ export const definePlugin = <
 		ModelExtension,
 		State,
 		OperationArgs,
-		ModelExtensionResolver
+		ModelExtensionResolver,
+		ClientExtensionResolver
 	>,
 ) =>
 	plugin as Plugin<
@@ -1455,5 +1589,6 @@ export const definePlugin = <
 		ModelExtension,
 		State,
 		OperationArgs,
-		ModelExtensionResolver
+		ModelExtensionResolver,
+		ClientExtensionResolver
 	>;

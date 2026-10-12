@@ -1096,7 +1096,7 @@ export type BetterDrizzleClient<
 	Meta = import('./query').BetterMeta,
 	Plugins extends readonly AnyPlugin[] = [],
 > = BetterDrizzleClientByTableWithPlugins<Schema, Meta, Plugins> &
-	ClientExtensionsOf<Plugins> & {
+	ClientExtensionsOf<Plugins, Schema, Meta> & {
 		/**
 		 * Extends the current client with custom properties and helper methods.
 		 *
@@ -1456,8 +1456,10 @@ export type BetterDrizzleModelDelegate<
 	 * Returns a cloned delegate that bypasses plugin hooks and transforms.
 	 *
 	 * Useful when you need to perform a raw operation without triggering
-	 * plugin logic (e.g. soft-delete filters).
+	 * plugin logic (e.g. soft-delete filters). Model scopes declared by
+	 * plugins (for example a tenant) are dropped too unless `keepScopes` is set.
 	 *
+	 * @param options - `keepScopes: true` keeps the client's model scopes.
 	 * @returns A new delegate with all plugin hooks and transforms disabled.
 	 *
 	 * @example
@@ -1466,13 +1468,9 @@ export type BetterDrizzleModelDelegate<
 	 * const allUsers = await db.user.$withoutPlugins().findMany();
 	 * ```
 	 */
-	$withoutPlugins(): BetterDrizzleModelDelegate<
-		Schema,
-		Name,
-		Meta,
-		Plugins,
-		ModelExtension
-	>;
+	$withoutPlugins(options?: {
+		keepScopes?: boolean;
+	}): BetterDrizzleModelDelegate<Schema, Name, Meta, Plugins, ModelExtension>;
 	/**
 	 * Compiles a typed `where` into a Drizzle `SQL` condition so it can be
 	 * reused in raw Drizzle queries, joins, and subqueries.

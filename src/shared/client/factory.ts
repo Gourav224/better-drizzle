@@ -712,6 +712,7 @@ const executeRawQuery = async <
 			rawOptions,
 			result,
 			schema: context.fullSchema,
+			scopes: context.scopes,
 			signal: rawOptions.signal,
 			sql: query,
 			timeoutMs: rawOptions.timeoutMs,
@@ -1349,6 +1350,25 @@ export const createBoundClient = <
 	applyClientExtensions(
 		context,
 		client as BetterDrizzleClient<Schema, Meta, Plugins>,
+		(key, state, meta) => {
+			const scopes = Object.assign(
+				Object.create(null) as Record<string, unknown>,
+				context.scopes,
+			);
+			if (state === undefined) delete scopes[key];
+			else scopes[key] = state;
+			return createBoundClient(
+				createDerivedRuntimeContext(
+					context,
+					context.db,
+					context.transaction,
+					meta
+						? mergeMeta(context.scopedMeta, meta as Meta)
+						: context.scopedMeta,
+					Object.freeze(scopes),
+				),
+			) as BetterDrizzleClient<Schema, Meta, Plugins>;
+		},
 	);
 	applyRuntimeClientExtensions(
 		context,
