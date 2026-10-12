@@ -940,6 +940,8 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 			)
 		: makeJoinCondition(fields, references, relationRuntime.table);
 	const subquery = context.db.select({ one: sql`1` }).from(targetTable);
+	// Scope conditions stay outside any negation: out-of-scope rows are absent.
+	const targetScope = scopePredicate(context, relationRuntime, targetAlias);
 	const buildNestedWhere = (nestedWhere?: Record<string, unknown>) =>
 		compileWhereInput(
 			{
@@ -968,10 +970,11 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 			.select({ value: referenceField })
 			.from(targetTable);
 
+		const scoped = and(predicate, targetScope);
 		if (!negated)
 			return inArray(
 				sourceField,
-				predicate ? subquery.where(predicate) : subquery,
+				scoped ? subquery.where(scoped) : subquery,
 			);
 
 		// isNot keeps rows without a related record, like the NOT EXISTS path:
@@ -981,7 +984,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 			isNull(sourceField),
 			notInArray(
 				sourceField,
-				subquery.where(and(isNotNull(referenceField), predicate)),
+				subquery.where(and(isNotNull(referenceField), scoped)),
 			),
 		);
 	};
@@ -990,6 +993,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 		const through = relationState.through;
 		if (!through) return;
 		const throughRuntime = getTableRuntime(context, through.tableName);
+		const throughScope = scopePredicate(context, throughRuntime);
 		const correlate: SQL[] = [];
 		const link: SQL[] = [];
 		for (let index = 0; index < fields.length; index += 1) {
@@ -1007,7 +1011,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				.select({ one: sql`1` })
 				.from(throughRuntime.table)
 				.innerJoin(targetTable, and(...link))
-				.where(and(...correlate, predicate));
+				.where(and(...correlate, throughScope, targetScope, predicate));
 
 		if ('some' in value)
 			return exists(
@@ -1034,6 +1038,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						buildNestedWhere(value.some as Record<string, unknown>),
 					),
 				),
@@ -1044,6 +1049,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						buildNestedWhere(value.none as Record<string, unknown>),
 					),
 				),
@@ -1057,6 +1063,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						nestedWhere ? not(nestedWhere) : undefined,
 					),
 				),
@@ -1069,7 +1076,9 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 	if (relationState.kind === 'one') {
 		if ('is' in value) {
 			if (value.is === null)
-				return notExists(subquery.where(joinCondition));
+				return notExists(
+					subquery.where(and(joinCondition, targetScope)),
+				);
 
 			const membership = buildMembershipFilter(
 				value.is as Record<string, unknown>,
@@ -1080,6 +1089,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						buildNestedWhere(value.is as Record<string, unknown>),
 					),
 				),
@@ -1088,7 +1098,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 
 		if ('isNot' in value) {
 			if (value.isNot === null)
-				return exists(subquery.where(joinCondition));
+				return exists(subquery.where(and(joinCondition, targetScope)));
 
 			const membership = buildMembershipFilter(
 				value.isNot as Record<string, unknown>,
@@ -1100,6 +1110,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						buildNestedWhere(
 							value.isNot as Record<string, unknown>,
 						),

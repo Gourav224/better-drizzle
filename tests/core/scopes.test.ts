@@ -451,3 +451,91 @@ describe('model scopes on relation loads', () => {
 		expect(tags[0]?.tags.map((tag) => tag.name)).toEqual(['eu-tag']);
 	});
 });
+
+describe('model scopes on relation filters', () => {
+	const sorted = { orderBy: { id: 'asc' } } as const;
+
+	test('some and none ignore out-of-scope related rows', async () => {
+		const { eu } = setup();
+
+		expect(
+			ids(
+				await eu.users.findMany({
+					...sorted,
+					where: { posts: { some: { title: { startsWith: 'us' } } } },
+				}),
+			),
+		).toEqual([]);
+		expect(
+			ids(
+				await eu.users.findMany({
+					...sorted,
+					where: { posts: { none: { title: 'us-2' } } },
+				}),
+			),
+		).toEqual([1, 3]);
+	});
+
+	test('every does not count out-of-scope rows as violations', async () => {
+		const { eu } = setup();
+
+		expect(
+			ids(
+				await eu.users.findMany({
+					...sorted,
+					where: {
+						posts: { every: { title: { startsWith: 'eu' } } },
+					},
+				}),
+			),
+		).toEqual([1, 3]);
+	});
+
+	test('is and isNot treat out-of-scope targets as absent', async () => {
+		const { eu } = setup();
+		const posts = (where: Record<string, unknown>) =>
+			eu.posts.findMany({ ...sorted, where: where as never });
+
+		expect(ids(await posts({ author: { is: { name: 'Bob' } } }))).toEqual(
+			[],
+		);
+		expect(
+			ids(await posts({ author: { isNot: { name: 'Bob' } } })),
+		).toEqual([1, 3, 5]);
+		expect(ids(await posts({ author: { is: null } }))).toEqual([5]);
+		expect(ids(await posts({ author: { isNot: null } }))).toEqual([1, 3]);
+	});
+
+	test('many-to-many filters scope the junction and the target', async () => {
+		const { eu } = setup();
+		const posts = (where: Record<string, unknown>) =>
+			eu.posts.findMany({ ...sorted, where: where as never });
+
+		expect(
+			ids(await posts({ tags: { some: { name: 'eu-tag' } } })),
+		).toEqual([1]);
+		expect(
+			ids(await posts({ tags: { some: { name: 'us-tag' } } })),
+		).toEqual([]);
+		expect(
+			ids(await posts({ tags: { every: { name: 'eu-tag' } } })),
+		).toEqual([1, 3, 5]);
+		expect(
+			ids(await posts({ tags: { none: { name: 'us-tag' } } })),
+		).toEqual([1, 3, 5]);
+	});
+
+	test('self relations scope the aliased table', async () => {
+		const { eu } = setup();
+		const categories = (where: Record<string, unknown>) =>
+			eu.categories.findMany({ ...sorted, where: where as never });
+
+		expect(
+			ids(await categories({ children: { some: { name: 'us-child' } } })),
+		).toEqual([]);
+		expect(ids(await categories({ children: { some: {} } }))).toEqual([1]);
+		expect(
+			ids(await categories({ parent: { is: { name: 'eu-root' } } })),
+		).toEqual([2]);
+	});
+});
