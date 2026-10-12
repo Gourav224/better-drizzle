@@ -257,3 +257,37 @@ export const withScope = <
 		Object.freeze(scopes),
 	);
 };
+
+/**
+ * Derives the context of a `$withoutPlugins()` delegate: no scopes, plus the
+ * `bypass()` meta of every scope whose state was set.
+ */
+export const withoutScopes = <
+	Schema extends AnySchema,
+	Meta,
+	Plugins extends readonly AnyPlugin[],
+>(
+	context: RuntimeContext<Schema, Meta, Plugins>,
+): RuntimeContext<Schema, Meta, Plugins> => {
+	const scopes = context.scopes as Readonly<Record<string, unknown>>;
+	const plugins: readonly AnyPlugin[] = context.options.plugins ?? [];
+	let meta: Record<string, unknown> | undefined;
+
+	for (const plugin of plugins) {
+		const definition = plugin.scope;
+		if (!definition?.bypass) continue;
+		const state = scopes[definition.key];
+		if (state === undefined) continue;
+		const extra = definition.bypass(state);
+		if (extra) meta = { ...meta, ...extra };
+	}
+
+	return {
+		...context,
+		scopedMeta: meta
+			? mergeMeta(context.scopedMeta, meta as Meta)
+			: context.scopedMeta,
+		scopes: undefined,
+		scopesDisabled: true,
+	};
+};

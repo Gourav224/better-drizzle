@@ -39,6 +39,7 @@ import type {
 } from '../../types';
 import { BetterDrizzleError, BetterDrizzleErrorCode } from '../errors';
 import { getMeta, isSimpleRecord } from './context';
+import { resolveScopes } from './scopes';
 
 const SKIP_PLUGINS_STATE = '__betterDrizzleSkipPlugins';
 
@@ -800,6 +801,8 @@ export const initializePlugins = <
 			schema: context.fullSchema,
 		});
 	}
+
+	resolveScopes(context);
 };
 
 const assertExtensionKeys = (

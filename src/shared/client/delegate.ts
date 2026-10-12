@@ -70,6 +70,7 @@ import {
 } from './plugins';
 import { type PreparedReadKind, fillParams, prepareRead } from './prepared';
 import { hasRelationWrites } from './relations';
+import { withoutScopes } from './scopes';
 
 const EMPTY_VALUES = Object.freeze({}) as Record<string, unknown>;
 
@@ -135,7 +136,13 @@ export const createModelDelegate = <
 			callback: (tx: Record<string, unknown>) => Promise<Result>,
 		) => Promise<Result>;
 		return transaction(async (tx) => {
-			const repository = tx[name] as Record<string, unknown>;
+			let repository = tx[name] as Record<string, unknown>;
+			// A `$withoutPlugins()` delegate dropped its scopes; the transaction
+			// client inherits them from the parent client, so drop them again.
+			if (context.scopesDisabled)
+				repository = (
+					repository.$withoutPlugins as () => Record<string, unknown>
+				)();
 			const scopedRepository = (
 				repository.$withState as (
 					value: Record<string, unknown>,
@@ -156,9 +163,11 @@ export const createModelDelegate = <
 				mergePluginState(state, nextState),
 			);
 		},
-		$withoutPlugins() {
+		$withoutPlugins(options?: { keepScopes?: boolean }) {
 			return createModelDelegate(
-				context,
+				options?.keepScopes || context.scopes === undefined
+					? context
+					: withoutScopes(context),
 				tableName,
 				mergePluginState(state, skipPluginsState()),
 			);
