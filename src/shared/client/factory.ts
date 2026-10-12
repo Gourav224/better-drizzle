@@ -40,6 +40,7 @@ import {
 	runPluginRawHooks,
 	runPluginTransactionHooks,
 } from './plugins';
+import { withScope } from './scopes';
 
 class TransactionRollbackSignal {
 	reason?: unknown;
@@ -1350,25 +1351,10 @@ export const createBoundClient = <
 	applyClientExtensions(
 		context,
 		client as BetterDrizzleClient<Schema, Meta, Plugins>,
-		(key, state, meta) => {
-			const scopes = Object.assign(
-				Object.create(null) as Record<string, unknown>,
-				context.scopes,
-			);
-			if (state === undefined) delete scopes[key];
-			else scopes[key] = state;
-			return createBoundClient(
-				createDerivedRuntimeContext(
-					context,
-					context.db,
-					context.transaction,
-					meta
-						? mergeMeta(context.scopedMeta, meta as Meta)
-						: context.scopedMeta,
-					Object.freeze(scopes),
-				),
-			) as BetterDrizzleClient<Schema, Meta, Plugins>;
-		},
+		(key, state, meta) =>
+			createBoundClient(
+				withScope(context, key, state, meta),
+			) as BetterDrizzleClient<Schema, Meta, Plugins>,
 	);
 	applyRuntimeClientExtensions(
 		context,
