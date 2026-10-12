@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 
-import { defineRelations } from 'drizzle-orm';
+import { defineRelations, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
@@ -50,7 +50,32 @@ const notes = sqliteTable('scope_notes', {
 	body: text('body').notNull(),
 });
 
-const schema = { categories, notes, posts, postTags, profiles, tags, users };
+// `catalog` has a region column but stays unscoped (a global model), so a
+// composite foreign key from `listings` can copy a foreign region.
+const catalog = sqliteTable('scope_catalog', {
+	id: integer('id').primaryKey(),
+	name: text('name').notNull(),
+	region: text('region').notNull(),
+});
+
+const listings = sqliteTable('scope_listings', {
+	catalogId: integer('catalog_id').notNull(),
+	id: integer('id').primaryKey(),
+	region: text('region').notNull(),
+	title: text('title').notNull(),
+});
+
+const schema = {
+	catalog,
+	categories,
+	listings,
+	notes,
+	posts,
+	postTags,
+	profiles,
+	tags,
+	users,
+};
 
 const relations = defineRelations(schema, (r) => ({
 	categories: {
@@ -58,6 +83,12 @@ const relations = defineRelations(schema, (r) => ({
 		parent: r.one.categories({
 			from: r.categories.parentId,
 			to: r.categories.id,
+		}),
+	},
+	listings: {
+		entry: r.one.catalog({
+			from: [r.listings.catalogId, r.listings.region],
+			to: [r.catalog.id, r.catalog.region],
 		}),
 	},
 	posts: {
@@ -88,9 +119,14 @@ export type ScopeEvent = {
 /**
  * Test plugin with a `region` scope on every table that has a `region`
  * column. `$inRegion(region)` scopes a client, `$anyRegion()` sets a `null`
- * state (bypass), and `$region` exposes the active state.
+ * state (bypass), and `$region` exposes the active state. With `session`,
+ * every transaction of a region client runs `set_config('app.region', ...)`
+ * on PostgreSQL and a marker `select` elsewhere.
  */
-export const regionPlugin = (events: ScopeEvent[] = []) =>
+export const regionPlugin = (
+	events: ScopeEvent[] = [],
+	options: { session?: boolean } = {},
+) =>
 	definePlugin({
 		extendClient: ({ scope, withScope }) => ({
 			$anyRegion: () => withScope(null, { regionBypass: 'any' }),
@@ -125,9 +161,19 @@ export const regionPlugin = (events: ScopeEvent[] = []) =>
 				new Error(`REGION_MISMATCH ${model.name}.${column}`),
 			missing: (model) => new Error(`REGION_REQUIRED ${model.name}`),
 			model: (model) =>
-				model.hasColumn('region')
+				model.hasColumn('region') && model.name !== 'catalog'
 					? { columns: ['region'], immutable: true, stamp: true }
 					: undefined,
+			session: options.session
+				? (state, dialect) => {
+						const { region } = state as { region: string };
+						return [
+							dialect === 'pg'
+								? sql`select set_config('app.region', ${region}, true)`
+								: sql`select ${region} as session_region`,
+						];
+					}
+				: undefined,
 		},
 		transform(input) {
 			events.push({ hook: 'transform', scopes: input.scopes });
@@ -138,7 +184,15 @@ export const regionPlugin = (events: ScopeEvent[] = []) =>
 export type MetaHooks = Record<string, (context: { meta?: unknown }) => void>;
 
 export const createScopeDb = (
-	options: { events?: ScopeEvent[]; hooks?: MetaHooks; plain?: boolean } = {},
+	options: {
+		events?: ScopeEvent[];
+		hooks?: MetaHooks;
+		plain?: boolean;
+		/** Declares the plugin's session statement. */
+		session?: boolean;
+		/** Collects every SQL statement Drizzle runs. */
+		queries?: string[];
+	} = {},
 ) => {
 	const sqlite = new Database(':memory:');
 	sqlite.exec(`
@@ -149,6 +203,8 @@ CREATE TABLE scope_tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL, region TEXT
 CREATE TABLE scope_post_tags (post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, region TEXT NOT NULL);
 CREATE TABLE scope_categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, parent_id INTEGER, region TEXT NOT NULL);
 CREATE TABLE scope_notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
+CREATE TABLE scope_catalog (id INTEGER PRIMARY KEY, name TEXT NOT NULL, region TEXT NOT NULL);
+CREATE TABLE scope_listings (id INTEGER PRIMARY KEY, catalog_id INTEGER NOT NULL, title TEXT NOT NULL, region TEXT NOT NULL);
 INSERT INTO scope_users VALUES (1, 'Ann', 'eu'), (2, 'Bob', 'us'), (3, 'Cid', 'eu');
 INSERT INTO scope_profiles VALUES (1, 1, 'ann', 'eu'), (2, 2, 'bob', 'us'), (3, 3, 'cid', 'us');
 INSERT INTO scope_posts VALUES (1, 1, 'eu-1', 'eu'), (2, 2, 'us-1', 'us'), (3, 3, 'eu-2', 'eu'), (4, 1, 'us-2', 'us'), (5, 2, 'eu-3', 'eu');
@@ -156,8 +212,14 @@ INSERT INTO scope_tags VALUES (1, 'eu-tag', 'eu'), (2, 'us-tag', 'us');
 INSERT INTO scope_post_tags VALUES (1, 1, 'eu'), (1, 2, 'eu'), (2, 2, 'us'), (3, 1, 'us'), (3, 2, 'us');
 INSERT INTO scope_categories VALUES (1, 'eu-root', NULL, 'eu'), (2, 'eu-child', 1, 'eu'), (3, 'us-child', 1, 'us'), (4, 'us-root', NULL, 'us');
 INSERT INTO scope_notes VALUES (1, 'n1'), (2, 'n2');
+INSERT INTO scope_catalog VALUES (1, 'eu-item', 'eu'), (2, 'us-item', 'us');
 `);
-	const raw = drizzle({ client: sqlite, relations });
+	const queries = options.queries;
+	const raw = drizzle({
+		client: sqlite,
+		logger: queries ? { logQuery: (query) => queries.push(query) } : false,
+		relations,
+	});
 	const db = better(raw, {
 		hooks: options.hooks as never,
 		plugins: [
@@ -168,7 +230,7 @@ INSERT INTO scope_notes VALUES (1, 'n1'), (2, 'n2');
 						intercept: undefined,
 						transform: undefined,
 					}
-				: regionPlugin(options.events),
+				: regionPlugin(options.events, { session: options.session }),
 		],
 	});
 	return {

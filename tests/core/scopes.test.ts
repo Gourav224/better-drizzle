@@ -592,3 +592,727 @@ describe('model scopes on _count and relation sorts', () => {
 		expect(ids(posts)).toEqual([3, 5, 1]);
 	});
 });
+
+describe('model scopes on write predicates', () => {
+	const titles = (sqlite: Database) =>
+		sqlite.query('SELECT id, title FROM scope_posts ORDER BY id').all() as {
+			id: number;
+			title: string;
+		}[];
+	const UNCHANGED = [
+		{ id: 1, title: 'eu-1' },
+		{ id: 2, title: 'us-1' },
+		{ id: 3, title: 'eu-2' },
+		{ id: 4, title: 'us-2' },
+		{ id: 5, title: 'eu-3' },
+	];
+
+	test('update never touches out-of-scope rows', async () => {
+		const { eu, sqlite } = setup();
+
+		expect(
+			await eu.posts.update({ data: { title: 'x' }, where: { id: 2 } }),
+		).toBeNull();
+		// Not pinned: the `LIMIT 1` subquery must pick the in-scope row (5).
+		const updated = await eu.posts.update({
+			data: { title: 'changed' },
+			where: { authorId: 2 },
+		});
+		expect(updated?.id).toBe(5);
+		expect(titles(sqlite)).toEqual([
+			{ id: 1, title: 'eu-1' },
+			{ id: 2, title: 'us-1' },
+			{ id: 3, title: 'eu-2' },
+			{ id: 4, title: 'us-2' },
+			{ id: 5, title: 'changed' },
+		]);
+	});
+
+	test('relational update by an out-of-scope key matches nothing', async () => {
+		const { eu, sqlite } = setup();
+
+		expect(
+			await eu.posts.update({
+				data: { author: { connect: { id: 1 } }, title: 'x' },
+				where: { id: 2 },
+			}),
+		).toBeNull();
+		expect(titles(sqlite)).toEqual(UNCHANGED);
+	});
+
+	test('delete never removes out-of-scope rows', async () => {
+		const { eu, sqlite } = setup();
+
+		expect(await eu.posts.delete({ where: { id: 4 } })).toBeNull();
+		const deleted = await eu.posts.delete({ where: { authorId: 2 } });
+		expect(deleted?.id).toBe(5);
+		expect(ids(titles(sqlite))).toEqual([1, 2, 3, 4]);
+	});
+
+	test('updateMany and deleteMany only affect in-scope rows', async () => {
+		const { eu, sqlite } = setup();
+
+		const updated = await eu.posts.updateMany({
+			data: { title: 'bulk' },
+			where: { id: { in: [1, 2, 4, 5] } },
+		});
+		expect(updated.count).toBe(2);
+		expect(titles(sqlite).map((row) => row.title)).toEqual([
+			'bulk',
+			'us-1',
+			'eu-2',
+			'us-2',
+			'bulk',
+		]);
+
+		const deleted = await eu.posts.deleteMany({
+			where: { authorId: { in: [1, 2] } },
+		});
+		expect(deleted.count).toBe(2);
+		expect(ids(titles(sqlite))).toEqual([2, 3, 4]);
+	});
+
+	test('updateEach only affects in-scope rows', async () => {
+		const { eu, raw, sqlite } = setup();
+
+		const result = await eu.posts.updateEach({
+			by: raw._.relations.posts.table.id,
+			data: [
+				{ id: 1, title: 'each-1' },
+				{ id: 2, title: 'each-2' },
+			],
+			update: { title: (row) => row.title as string },
+		});
+		expect(result.count).toBe(1);
+		expect(titles(sqlite).slice(0, 2)).toEqual([
+			{ id: 1, title: 'each-1' },
+			{ id: 2, title: 'us-1' },
+		]);
+	});
+
+	test('an empty where stays a no-op instead of hitting the whole scope', async () => {
+		const { eu, sqlite } = setup();
+
+		expect(
+			await eu.posts.update({ data: { title: 'x' }, where: {} }),
+		).toBeNull();
+		expect(await eu.posts.delete({ where: {} })).toBeNull();
+		expect(
+			await eu.posts.updateMany({ data: { title: 'x' }, where: {} }),
+		).toEqual({ count: 0 });
+		expect(await eu.posts.deleteMany({ where: {} })).toEqual({ count: 0 });
+		expect(await eu.posts.deleteMany()).toEqual({ count: 0 });
+		expect(titles(sqlite)).toEqual(UNCHANGED);
+	});
+
+	test('$withoutPlugins() writes every matching row', async () => {
+		const { eu } = setup();
+
+		const result = await eu.posts.$withoutPlugins().updateMany({
+			data: { title: 'all' },
+			where: { authorId: 2 },
+		});
+		expect(result.count).toBe(2);
+	});
+});
+
+describe('model scopes on inserts', () => {
+	const regions = (sqlite: Database, table = 'scope_posts') =>
+		sqlite
+			.query(`SELECT id, region FROM ${table} WHERE id >= 10 ORDER BY id`)
+			.all();
+	const count = (sqlite: Database) =>
+		(
+			sqlite.query('SELECT count(*) AS n FROM scope_posts').get() as {
+				n: number;
+			}
+		).n;
+	const post = (id: number, extra: Record<string, unknown> = {}) =>
+		({ authorId: 1, id, title: `p${id}`, ...extra }) as never;
+
+	test('create stamps the scope, accepts an equal value, rejects another', async () => {
+		const { eu, sqlite } = setup();
+
+		expect((await eu.posts.create({ data: post(10) })).region).toBe('eu');
+		await eu.posts.create({ data: post(11, { region: 'eu' }) });
+		await expect(
+			eu.posts.create({ data: post(12, { region: 'us' }) }),
+		).rejects.toThrow('REGION_MISMATCH posts.region');
+		expect(regions(sqlite)).toEqual([
+			{ id: 10, region: 'eu' },
+			{ id: 11, region: 'eu' },
+		]);
+	});
+
+	test('relational create stamps and rejects a foreign value before writing', async () => {
+		const { eu, sqlite } = setup();
+
+		await eu.posts.create({
+			data: { ...post(10), author: { connect: { id: 1 } } } as never,
+		});
+		await expect(
+			eu.posts.create({
+				data: {
+					...post(11, { region: 'us' }),
+					author: { connect: { id: 1 } },
+				} as never,
+			}),
+		).rejects.toThrow('REGION_MISMATCH posts.region');
+		expect(regions(sqlite)).toEqual([{ id: 10, region: 'eu' }]);
+	});
+
+	test('createMany stamps every row and rejects a batch with a foreign value', async () => {
+		const { eu, sqlite } = setup();
+
+		const created = await eu.posts.createMany({
+			data: [post(10), post(11, { region: 'eu' })],
+		});
+		expect(created.count).toBe(2);
+		await expect(
+			eu.posts.createMany({
+				batchSize: 1,
+				data: [post(12), post(13, { region: 'us' })],
+			}),
+		).rejects.toThrow('REGION_MISMATCH posts.region');
+		expect(regions(sqlite)).toEqual([
+			{ id: 10, region: 'eu' },
+			{ id: 11, region: 'eu' },
+		]);
+	});
+
+	test('upsert create branch stamps on the native and read-then-write paths', async () => {
+		const { eu, sqlite } = setup();
+
+		const native = await eu.posts.upsert({
+			create: post(10),
+			update: { title: 'updated' },
+			where: { id: 10 },
+		});
+		expect(native?.region).toBe('eu');
+		const fallback = await eu.posts.upsert({
+			create: post(11, { region: 'eu' }),
+			update: { title: 'updated' },
+			where: { title: 'missing' },
+		});
+		expect(fallback?.region).toBe('eu');
+		await expect(
+			eu.posts.upsert({
+				create: post(12, { region: 'us' }),
+				update: { title: 'updated' },
+				where: { id: 12 },
+			}),
+		).rejects.toThrow('REGION_MISMATCH posts.region');
+		await expect(
+			eu.posts.upsert({
+				create: post(13, { region: 'us' }),
+				update: { title: 'updated' },
+				where: { title: 'missing' },
+			}),
+		).rejects.toThrow('REGION_MISMATCH posts.region');
+		expect(regions(sqlite)).toEqual([
+			{ id: 10, region: 'eu' },
+			{ id: 11, region: 'eu' },
+		]);
+	});
+
+	test('upsertMany stamps rows and rejects a foreign value before writing', async () => {
+		const { eu, sqlite } = setup();
+		const target = 'id';
+
+		const result = await eu.posts.upsertMany({
+			data: [post(10), post(11, { region: 'eu' })],
+			target,
+			update: ['title'],
+		});
+		expect(result.count).toBe(2);
+		await expect(
+			eu.posts.upsertMany({
+				batchSize: 1,
+				data: [post(12), post(13, { region: 'us' })],
+				target,
+				update: ['title'],
+			}),
+		).rejects.toThrow('REGION_MISMATCH posts.region');
+		expect(regions(sqlite)).toEqual([
+			{ id: 10, region: 'eu' },
+			{ id: 11, region: 'eu' },
+		]);
+	});
+
+	test('a client without the scope value cannot insert; a null state does not stamp', async () => {
+		const { db, sqlite } = setup();
+		const before = count(sqlite);
+
+		await expect(db.posts.create({ data: post(10) })).rejects.toThrow(
+			'REGION_REQUIRED posts',
+		);
+		expect(count(sqlite)).toBe(before);
+
+		await db
+			.$anyRegion()
+			.posts.create({ data: post(11, { region: 'us' }) });
+		expect(regions(sqlite)).toEqual([{ id: 11, region: 'us' }]);
+	});
+});
+
+describe('immutable model scope columns', () => {
+	const region = (sqlite: Database, id: number) =>
+		(
+			sqlite
+				.query('SELECT region FROM scope_posts WHERE id = ?')
+				.get(id) as {
+				region: string;
+			}
+		).region;
+	const mismatch = 'REGION_MISMATCH posts.region';
+
+	test('update and updateMany reject a scope column change and accept the active value', async () => {
+		const { eu, sqlite } = setup();
+
+		await expect(
+			eu.posts.update({ data: { region: 'us' }, where: { id: 1 } }),
+		).rejects.toThrow(mismatch);
+		await expect(
+			eu.posts.update({
+				data: { author: { connect: { id: 1 } }, region: 'us' } as never,
+				where: { id: 1 },
+			}),
+		).rejects.toThrow(mismatch);
+		await expect(
+			eu.posts.updateMany({ data: { region: 'us' }, where: { id: 1 } }),
+		).rejects.toThrow(mismatch);
+		expect(
+			(
+				await eu.posts.update({
+					data: { region: 'eu', title: 'same' },
+					where: { id: 1 },
+				})
+			)?.title,
+		).toBe('same');
+		expect(region(sqlite, 1)).toBe('eu');
+	});
+
+	test('updateEach rejects a resolver that changes a scope column', async () => {
+		const { eu, raw, sqlite } = setup();
+		const by = raw._.relations.posts.table.id;
+
+		await expect(
+			eu.posts.updateEach({
+				by,
+				data: [
+					{ id: 1, region: 'eu' },
+					{ id: 3, region: 'us' },
+				],
+				update: { region: (row) => row.region as string },
+			}),
+		).rejects.toThrow(mismatch);
+		expect(region(sqlite, 3)).toBe('eu');
+		const same = await eu.posts.updateEach({
+			by,
+			data: [{ id: 1, region: 'eu' }],
+			update: { region: (row) => row.region as string },
+		});
+		expect(same.count).toBe(1);
+	});
+
+	test('the upsert update branch cannot change a scope column', async () => {
+		const { eu, sqlite } = setup();
+		const create = { authorId: 1, id: 1, title: 'c' } as never;
+
+		await expect(
+			eu.posts.upsert({
+				create,
+				update: { region: 'us' },
+				where: { id: 1 },
+			}),
+		).rejects.toThrow(mismatch);
+		await expect(
+			eu.posts.upsert({
+				create,
+				update: { region: 'us' },
+				where: { title: 'eu-1' },
+			}),
+		).rejects.toThrow(mismatch);
+		expect(region(sqlite, 1)).toBe('eu');
+	});
+
+	test('upsertMany object and function updates cannot change a scope column', async () => {
+		const { eu, sqlite } = setup();
+		const data = [{ authorId: 1, id: 1, title: 'c' }] as never;
+
+		await expect(
+			eu.posts.upsertMany({
+				data,
+				target: 'id',
+				update: { region: 'us' },
+			}),
+		).rejects.toThrow(mismatch);
+		await expect(
+			eu.posts.upsertMany({
+				data,
+				target: 'id',
+				update: ({ excluded }) => ({ region: excluded.region }),
+			}),
+		).rejects.toThrow(mismatch);
+		expect(region(sqlite, 1)).toBe('eu');
+	});
+
+	test("upsertMany 'all' and column lists drop scope columns from the update set", async () => {
+		const queries: string[] = [];
+		const { eu } = setup({ queries });
+		const data = [{ authorId: 1, id: 1, title: 'all' }] as never;
+
+		await eu.posts.upsertMany({ data, target: 'id', update: 'all' });
+		await eu.posts.upsertMany({
+			data,
+			target: 'id',
+			update: ['title', 'region'],
+		});
+		const sets = queries
+			.filter((query) => query.includes('on conflict'))
+			.map(
+				(query) =>
+					query
+						.slice(query.indexOf('do update set'))
+						.split(' where ')[0]
+						?.split(' returning ')[0],
+			);
+		expect(sets).toHaveLength(2);
+		for (const set of sets) {
+			expect(set).toContain('"title" = "excluded"."title"');
+			expect(set).not.toContain('"region" =');
+		}
+		await expect(
+			Promise.resolve(
+				eu.posts.upsertMany({ data, target: 'id', update: ['region'] }),
+			),
+		).rejects.toThrow('upsertMany update must affect at least one column.');
+	});
+});
+
+describe('model scopes on upsert conflicts', () => {
+	const row = (sqlite: Database, id: number) =>
+		sqlite
+			.query('SELECT id, title, region FROM scope_posts WHERE id = ?')
+			.get(id);
+
+	test('upsert conflicting with an out-of-scope row throws and leaves it', async () => {
+		const { eu, sqlite } = setup();
+
+		await expect(
+			eu.posts.upsert({
+				create: { authorId: 1, id: 2, title: 'stolen' } as never,
+				update: { title: 'stolen' },
+				where: { id: 2 },
+			}),
+		).rejects.toThrow('REGION_MISMATCH posts.region');
+		expect(row(sqlite, 2)).toEqual({ id: 2, region: 'us', title: 'us-1' });
+
+		const own = await eu.posts.upsert({
+			create: { authorId: 1, id: 1, title: 'mine' } as never,
+			update: { title: 'mine' },
+			where: { id: 1 },
+		});
+		expect(own?.title).toBe('mine');
+	});
+
+	test('upsertMany skips and does not count out-of-scope conflicts', async () => {
+		const { eu, sqlite } = setup();
+		const data = [
+			{ authorId: 1, id: 1, title: 'mine' },
+			{ authorId: 1, id: 2, title: 'stolen' },
+			{ authorId: 1, id: 10, title: 'new' },
+		] as never;
+
+		const result = await eu.posts.upsertMany({
+			data,
+			select: { id: true },
+			target: 'id',
+			update: ['title'],
+		});
+		expect(result).toEqual({ count: 2, data: [{ id: 1 }, { id: 10 }] });
+		expect(row(sqlite, 2)).toEqual({ id: 2, region: 'us', title: 'us-1' });
+
+		const filtered = await eu.posts.upsertMany({
+			data: [
+				{ authorId: 1, id: 1, title: 'again' },
+				{ authorId: 1, id: 2, title: 'again' },
+				{ authorId: 1, id: 3, title: 'again' },
+			] as never,
+			target: 'id',
+			update: ['title'],
+			where: { id: { not: 3 } },
+		});
+		expect(filtered.count).toBe(1);
+		expect(row(sqlite, 2)).toEqual({ id: 2, region: 'us', title: 'us-1' });
+		expect(row(sqlite, 3)).toEqual({ id: 3, region: 'eu', title: 'eu-2' });
+	});
+});
+
+describe('model scopes on relation writes', () => {
+	const miss = 'Relation selector did not match a record.';
+	const query = (sqlite: Database, text: string) => sqlite.query(text).all();
+	const links = (sqlite: Database) =>
+		query(
+			sqlite,
+			'SELECT post_id AS postId, tag_id AS tagId, region FROM scope_post_tags ORDER BY post_id, tag_id, region',
+		);
+	const LINKS = [
+		{ postId: 1, region: 'eu', tagId: 1 },
+		{ postId: 1, region: 'eu', tagId: 2 },
+		{ postId: 2, region: 'us', tagId: 2 },
+		{ postId: 3, region: 'us', tagId: 1 },
+		{ postId: 3, region: 'us', tagId: 2 },
+	];
+
+	test('connect to an out-of-scope row fails and writes nothing', async () => {
+		const { eu, sqlite } = setup();
+
+		await expect(
+			eu.posts.create({
+				data: {
+					author: { connect: { id: 2 } },
+					id: 10,
+					title: 'x',
+				} as never,
+			}),
+		).rejects.toThrow(miss);
+		await expect(
+			eu.posts.update({
+				data: { author: { connect: { id: 2 } } },
+				where: { id: 1 },
+			}),
+		).rejects.toThrow(miss);
+		await expect(
+			eu.users.update({
+				data: { posts: { connect: { id: 2 } } },
+				where: { id: 1 },
+			}),
+		).rejects.toThrow(miss);
+
+		expect(
+			query(
+				sqlite,
+				'SELECT id, author_id AS authorId FROM scope_posts ORDER BY id',
+			),
+		).toEqual([
+			{ authorId: 1, id: 1 },
+			{ authorId: 2, id: 2 },
+			{ authorId: 3, id: 3 },
+			{ authorId: 1, id: 4 },
+			{ authorId: 2, id: 5 },
+		]);
+	});
+
+	test('disconnect and set resolve and replace only in-scope rows', async () => {
+		const { eu, sqlite } = setup();
+
+		await expect(
+			eu.users.update({
+				data: { profile: { disconnect: { id: 2 } } },
+				where: { id: 1 },
+			}),
+		).rejects.toThrow(miss);
+		await expect(
+			eu.users.update({
+				data: { posts: { set: [{ id: 1 }, { id: 4 }] } },
+				where: { id: 1 },
+			}),
+		).rejects.toThrow(miss);
+		// Post 4 (us) also belongs to user 1 but is outside the scope, so
+		// `set` must not detach it.
+		await eu.users.update({
+			data: { posts: { set: [{ id: 1 }] } },
+			where: { id: 1 },
+		});
+		expect(
+			query(
+				sqlite,
+				'SELECT id FROM scope_posts WHERE author_id = 1 ORDER BY id',
+			),
+		).toEqual([{ id: 1 }, { id: 4 }]);
+	});
+
+	test('many-to-many connect stamps junction rows and checks existence in scope', async () => {
+		const { eu, sqlite } = setup();
+
+		await expect(
+			eu.posts.update({
+				data: { tags: { connect: [{ id: 2 }] } },
+				where: { id: 5 },
+			}),
+		).rejects.toThrow(miss);
+		await eu.posts.update({
+			data: { tags: { connect: [{ id: 1 }] } },
+			where: { id: 5 },
+		});
+		// The us link (3, 1) is outside the scope, so the eu link is created.
+		await eu.posts.update({
+			data: { tags: { connect: [{ id: 1 }] } },
+			where: { id: 3 },
+		});
+		expect(links(sqlite)).toEqual([
+			{ postId: 1, region: 'eu', tagId: 1 },
+			{ postId: 1, region: 'eu', tagId: 2 },
+			{ postId: 2, region: 'us', tagId: 2 },
+			{ postId: 3, region: 'eu', tagId: 1 },
+			{ postId: 3, region: 'us', tagId: 1 },
+			{ postId: 3, region: 'us', tagId: 2 },
+			{ postId: 5, region: 'eu', tagId: 1 },
+		]);
+	});
+
+	test('many-to-many set and disconnect only delete in-scope junction rows', async () => {
+		const { eu, sqlite } = setup();
+
+		await eu.posts.update({
+			data: { tags: { set: [] } },
+			where: { id: 3 },
+		});
+		await eu.posts.update({
+			data: { tags: { disconnect: [{ id: 1 }] } },
+			where: { id: 3 },
+		});
+		expect(links(sqlite)).toEqual(LINKS);
+
+		await eu.posts.update({
+			data: { tags: { disconnect: [{ id: 1 }] } },
+			where: { id: 1 },
+		});
+		expect(links(sqlite)).toEqual(LINKS.slice(1));
+	});
+
+	test('a composite foreign key with a scope column accepts equal values and rejects others', async () => {
+		const { eu, sqlite } = setup();
+
+		const created = await eu.listings.create({
+			data: { entry: { connect: { id: 1 } }, id: 1, title: 'l' } as never,
+		});
+		expect(created).toEqual({
+			catalogId: 1,
+			id: 1,
+			region: 'eu',
+			title: 'l',
+		});
+		await expect(
+			eu.listings.create({
+				data: {
+					entry: { connect: { id: 2 } },
+					id: 2,
+					title: 'l',
+				} as never,
+			}),
+		).rejects.toThrow('REGION_MISMATCH listings.region');
+		await expect(
+			eu.listings.update({
+				data: { entry: { connect: { id: 2 } } },
+				where: { id: 1 },
+			}),
+		).rejects.toThrow('REGION_MISMATCH listings.region');
+		expect(
+			query(
+				sqlite,
+				'SELECT id, catalog_id AS catalogId, region FROM scope_listings',
+			),
+		).toEqual([{ catalogId: 1, id: 1, region: 'eu' }]);
+	});
+});
+
+describe('model scope session statements', () => {
+	const SESSION = 'select ? as session_region';
+	const sessions = (queries: string[]) =>
+		queries.filter((query) => query === SESSION).length;
+
+	test('clients without session statements keep the non-transactional path', async () => {
+		const queries: string[] = [];
+		const { eu } = setup({ queries });
+
+		await eu.posts.findMany();
+		await eu.posts.updateMany({ data: { title: 'x' }, where: { id: 1 } });
+
+		expect(queries).toHaveLength(2);
+		expect(queries).not.toContain('begin');
+	});
+
+	test('standalone operations run their session statement in an implicit transaction', async () => {
+		const queries: string[] = [];
+		const { db, eu } = setup({ queries, session: true });
+
+		expect(
+			ids(await eu.posts.findMany({ orderBy: { id: 'asc' } })),
+		).toEqual([1, 3, 5]);
+		expect(queries[0]).toBe('begin');
+		expect(queries[1]).toBe(SESSION);
+		expect(queries[2]).toStartWith('select');
+		expect(queries[3]).toBe('commit');
+
+		queries.length = 0;
+		const updated = await eu.posts.update({
+			data: { title: 'x' },
+			where: { id: 1 },
+		});
+		expect(updated?.title).toBe('x');
+		expect(queries.slice(0, 2)).toEqual(['begin', SESSION]);
+		expect(queries.at(-1)).toBe('commit');
+
+		// No scope value (or a null bypass): no session statement, no transaction.
+		queries.length = 0;
+		await db.notes.findMany();
+		await db.$anyRegion().posts.count();
+		expect(queries).toHaveLength(2);
+		expect(queries).not.toContain('begin');
+	});
+
+	test('a savepoint hands its session state back only when released', async () => {
+		const queries: string[] = [];
+		const { eu } = setup({ queries, session: true });
+
+		await eu.transaction(async (tx) => {
+			await tx
+				.transaction(async (inner) => {
+					await inner.$inRegion('us').posts.count();
+					await inner.rollback();
+				})
+				.catch(() => undefined);
+			// Rolled back: the session still holds eu.
+			await tx.posts.count();
+			await tx.transaction(async (inner) => {
+				await inner.$inRegion('us').posts.count();
+			});
+			// Released: the session now holds us, so eu runs again.
+			await tx.posts.count();
+		});
+		expect(sessions(queries)).toBe(4);
+	});
+
+	test('explicit transactions run the session statement once, savepoints included', async () => {
+		const queries: string[] = [];
+		const { eu } = setup({ queries, session: true });
+
+		await eu.transaction(async (tx) => {
+			await tx.posts.findMany();
+			await tx.users.count();
+			await tx.transaction(async (inner) => {
+				await inner.posts.count();
+			});
+		});
+		expect(sessions(queries)).toBe(1);
+		expect(queries.slice(0, 2)).toEqual(['begin', SESSION]);
+	});
+
+	test('a narrowed scope inside a transaction runs its own session statement', async () => {
+		const queries: string[] = [];
+		const { eu } = setup({ queries, session: true });
+
+		const counts = await eu.transaction(async (tx) => [
+			await tx.posts.count(),
+			await tx.$inRegion('us').posts.count(),
+			await tx.$inRegion('us').posts.count(),
+			await tx.$inRegion('eu').posts.count(),
+		]);
+		expect(counts).toEqual([3, 2, 2, 3]);
+		// eu at begin, us once (equal states do not run it again), then eu
+		// again because the session now holds us.
+		expect(sessions(queries)).toBe(3);
+	});
+});

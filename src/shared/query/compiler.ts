@@ -1798,6 +1798,7 @@ export const buildCountQuery = <Schema extends AnySchema, Meta>(
 			runtime,
 			undefined,
 			rootArgs as Record<string, unknown> | undefined,
+			context.writeScope === runtime,
 		),
 	);
 
@@ -1833,6 +1834,7 @@ export const countRows = async <Schema extends AnySchema, Meta>(
 			runtime,
 			undefined,
 			rootArgs as Record<string, unknown> | undefined,
+			context.writeScope === runtime,
 		),
 	);
 

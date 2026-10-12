@@ -231,6 +231,11 @@ export type PluginScopeDefinition<State = unknown> = {
 	): Record<string, unknown> | null | undefined;
 	/** Statements run at the start of each transaction while the state is set. */
 	session?(state: State, dialect: PluginDialect): SQL[] | undefined;
+	/**
+	 * Also runs `session()` statements for raw calls: a standalone raw call
+	 * opens a transaction. Defaults to `false` (raw SQL runs as written).
+	 */
+	rawSession?: boolean;
 };
 
 /**
@@ -1258,7 +1263,8 @@ export interface ModelExtensionTypeResolver {
  * Type-level resolver for client extensions, like
  * {@link ModelExtensionTypeResolver}. Better Drizzle fills in `schema`,
  * `meta`, and `plugins` for the client; `extension` computes the properties
- * the plugin adds.
+ * the plugin adds. `hidden`, when set, names table keys removed from the
+ * client returned by `better()` (clients the plugin derives keep them).
  *
  * @example
  * ```ts
@@ -1272,7 +1278,35 @@ export interface ClientExtensionTypeResolver {
 	readonly meta: unknown;
 	readonly plugins: unknown;
 	readonly extension: unknown;
+	readonly hidden?: unknown;
 }
+
+type HiddenOfResolver<Resolver, Schema extends AnySchema> = [Resolver] extends [
+	never,
+]
+	? never
+	: Resolver extends ClientExtensionTypeResolver
+		? Extract<
+				(Resolver & { readonly schema: Schema })['hidden'],
+				TableKey<Schema>
+			>
+		: never;
+
+/**
+ * Table keys that plugin client resolvers hide from the client returned by
+ * `better()`.
+ *
+ * @typeParam Plugins - The plugin tuple.
+ * @typeParam Schema  - The Drizzle schema type.
+ */
+export type HiddenModelsOf<
+	Plugins extends readonly AnyPlugin[],
+	Schema extends AnySchema,
+> = Plugins[number] extends infer PluginDef
+	? PluginDef extends { readonly clientExtensionResolver?: infer Resolver }
+		? HiddenOfResolver<NonNullable<Resolver>, Schema>
+		: never
+	: never;
 
 type ClientExtensionOfResolver<
 	Resolver,

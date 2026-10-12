@@ -351,6 +351,8 @@ export type TransactionRuntime = {
 	options: TransactionOptions;
 	/** Reference to the parent transaction state, when nested. */
 	parent?: TransactionRuntime;
+	/** Scope state whose `session()` statements already ran in this transaction. */
+	sessionScopes?: Readonly<Record<string, unknown>>;
 };
 
 /**
@@ -396,11 +398,17 @@ export type RuntimeContext<
 	scopes: Readonly<Record<string, unknown>> | undefined;
 	/** Set by `$withoutPlugins()` on delegates whose scopes were dropped. */
 	scopesDisabled: boolean;
+	/** Set while an upsert runs: scopes with `upsert: false` are skipped. */
+	upsertScopes?: true;
+	/** Set while a write runs: root reads of this table match `nullable` scopes strictly. */
+	writeScope?: TableRuntime;
 	/** Precomputed plugin buckets and metadata. */
 	plugins: {
 		byKind: Record<PluginHookKind, PluginRuntimeBucket>;
 		meta: PluginMeta[];
 		raw: PluginRuntimeRawBucket;
+		/** Scope definitions with `session()` statements; unset when none. */
+		sessions?: readonly PluginScopeDefinition[];
 		transaction: PluginRuntimeTransactionBucket;
 	};
 	/** The full Drizzle schema object. */

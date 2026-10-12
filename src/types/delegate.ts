@@ -18,6 +18,7 @@ import type {
 import type {
 	AnyPlugin,
 	ClientExtensionsOf,
+	HiddenModelsOf,
 	GeneratedColumnsOf,
 	ModelExtensionsOf,
 	OperationArgsWithPlugins,
@@ -1060,6 +1061,78 @@ export type ExtendedClient<Client, Extension> = Omit<
 			options?: TransactionOptionsOf<Client>,
 		): Promise<T>;
 	};
+
+/**
+ * A client without the `Hidden` table keys; `Repository` replaces its
+ * `repository()` accessor. `$withContext()`, `extends()`, and transaction
+ * clients derived from it hide the same keys.
+ */
+export type StrictClient<Client, Hidden extends PropertyKey, Repository> = Omit<
+	Client,
+	Hidden | '$withContext' | 'extends' | 'repository' | 'transaction'
+> &
+	Repository & {
+		extends: BetterDrizzleExtendsMethod<
+			StrictClient<Client, Hidden, Repository>
+		>;
+		$withContext(
+			meta: ScopedMetaOf<Client>,
+		): StrictClient<Client, Hidden, Repository>;
+		transaction<T>(
+			callback: (
+				tx: StrictClient<
+					TransactionClientOf<Client>,
+					Hidden,
+					Repository
+				>,
+			) => Promise<T> | T,
+			options?: TransactionOptionsOf<Client>,
+		): Promise<T>;
+	};
+
+/** `repository()` accepting only the table keys and database names not hidden. */
+type StrictRepository<
+	Schema extends AnySchema,
+	Meta,
+	Plugins extends readonly AnyPlugin[],
+	Hidden extends TableKey<Schema>,
+> = {
+	repository<
+		Name extends Exclude<
+			RepositoryKey<Schema>,
+			Hidden | TableFor<Schema, Hidden>['_']['name']
+		>,
+	>(
+		name: Name,
+	): BetterDrizzleModelDelegate<
+		Schema,
+		RepositorySourceKey<Schema, Name>,
+		Meta,
+		Plugins
+	>;
+};
+
+/**
+ * The client type returned by {@link better}: {@link BetterDrizzleClient}
+ * without the models plugins hide (the tenant plugin's `strict` option),
+ * through properties and `repository()`.
+ */
+export type BetterRootClient<
+	Schema extends AnySchema,
+	Meta = import('./query').BetterMeta,
+	Plugins extends readonly AnyPlugin[] = [],
+> = [HiddenModelsOf<Plugins, Schema>] extends [never]
+	? BetterDrizzleClient<Schema, Meta, Plugins>
+	: StrictClient<
+			BetterDrizzleClient<Schema, Meta, Plugins>,
+			HiddenModelsOf<Plugins, Schema>,
+			StrictRepository<
+				Schema,
+				Meta,
+				Plugins,
+				HiddenModelsOf<Plugins, Schema>
+			>
+		>;
 
 /**
  * The fully-typed client returned by {@link better}. Provides a delegate for

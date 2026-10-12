@@ -3,10 +3,12 @@ import {
 	and,
 	asc,
 	eq,
+	exists,
 	gt,
 	inArray,
 	lte,
 	or,
+	type SQL,
 	type SQLWrapper,
 	sql,
 } from 'drizzle-orm';
@@ -27,7 +29,26 @@ import {
 	compileWhereInput,
 } from '../query';
 import { getPrimaryKeyWhere, getTableRuntime, isSimpleRecord } from './context';
-import { scopePredicate } from './scopes';
+import { assertImmutable, scopePredicate, stampInsert } from './scopes';
+
+// ANDs the model scope of `runtime` into a relation-write predicate;
+// `strict` when the rows it matches are changed.
+const scoped = <Schema extends AnySchema, Meta>(
+	context: RuntimeContext<Schema, Meta>,
+	runtime: TableRuntime,
+	predicate: SQL | undefined,
+	strict = false,
+) => {
+	if (!predicate || context.scopes === undefined) return predicate;
+	const scope = scopePredicate(
+		context,
+		runtime,
+		undefined,
+		undefined,
+		strict,
+	);
+	return scope ? and(predicate, scope) : predicate;
+};
 
 type RelationArgs = QueryArgs<AnySchema, never, unknown>;
 type RelationState = TableRuntime['relations'][string];
@@ -755,6 +776,7 @@ const resolveSelector = async <Schema extends AnySchema, Meta>(
 	runtime: TableRuntime,
 	selector: unknown,
 	relationName: string,
+	strict = false,
 ) => {
 	if (!isSimpleRecord(selector) || !Object.keys(selector).length)
 		throw relationError(
@@ -780,7 +802,7 @@ const resolveSelector = async <Schema extends AnySchema, Meta>(
 	const rows = await context.db
 		.select()
 		.from(runtime.table)
-		.where(where)
+		.where(scoped(context, runtime, where, strict))
 		.limit(2);
 	if (rows.length !== 1)
 		throw relationError(
@@ -800,6 +822,7 @@ const resolveSelectors = async <Schema extends AnySchema, Meta>(
 	runtime: TableRuntime,
 	selectors: unknown,
 	relationName: string,
+	strict = false,
 ) => {
 	const rows = [];
 	const seen = new Set<string>();
@@ -809,6 +832,7 @@ const resolveSelectors = async <Schema extends AnySchema, Meta>(
 			runtime,
 			selector,
 			relationName,
+			strict,
 		);
 		const key = rowKey(runtime, row, primaryKeyColumns(runtime));
 		if (key && seen.has(key)) continue;
@@ -926,7 +950,16 @@ export const prepareRelationWrite = async <Schema extends AnySchema, Meta>(
 		delete remaining[relationName];
 	}
 
-	return { relations: remaining, scalar: split.scalar };
+	// Foreign keys copied from targets may include scope columns.
+	if (context.scopes === undefined)
+		return { relations: remaining, scalar: split.scalar };
+	if (!create) assertImmutable(context, runtime, split.scalar);
+	return {
+		relations: remaining,
+		scalar: create
+			? stampInsert(context, runtime, split.scalar)
+			: split.scalar,
+	};
 };
 
 const recordMatchesParent = (
@@ -1000,7 +1033,11 @@ const updateResolvedTarget = async <Schema extends AnySchema, Meta>(
 			undefined,
 			BetterDrizzleErrorCode.OperationError,
 		);
-	await context.db.update(runtime.table).set(data).where(where);
+	assertImmutable(context, runtime, data);
+	await context.db
+		.update(runtime.table)
+		.set(data)
+		.where(scoped(context, runtime, where, true));
 };
 
 const findLinkedTargets = async <Schema extends AnySchema, Meta>(
@@ -1023,7 +1060,7 @@ const findLinkedTargets = async <Schema extends AnySchema, Meta>(
 	return context.db
 		.select()
 		.from(targetRuntime.table)
-		.where(and(...conditions));
+		.where(scoped(context, targetRuntime, and(...conditions), true));
 };
 
 const applyDirectRelation = async <Schema extends AnySchema, Meta>(
@@ -1053,6 +1090,7 @@ const applyDirectRelation = async <Schema extends AnySchema, Meta>(
 					targetRuntime,
 					setValue,
 					relationName,
+					true,
 				);
 
 	const connectTargets = [
@@ -1064,6 +1102,7 @@ const applyDirectRelation = async <Schema extends AnySchema, Meta>(
 					targetRuntime,
 					connectValue,
 					relationName,
+					true,
 				)),
 	];
 	// A to-one whose foreign key lives on the target (users.profile) has at
@@ -1117,6 +1156,7 @@ const applyDirectRelation = async <Schema extends AnySchema, Meta>(
 				targetRuntime,
 				selector,
 				relationName,
+				true,
 			);
 			if (
 				!recordMatchesParent(
@@ -1198,6 +1238,36 @@ const pivotPredicate = (
 	return conditions.length ? and(...conditions) : undefined;
 };
 
+// `set` replaces only links to targets inside the target scope; links to
+// out-of-scope targets (a junction without scope columns) stay.
+const inScopeTargets = <Schema extends AnySchema, Meta>(
+	context: RuntimeContext<Schema, Meta>,
+	targetRuntime: TableRuntime,
+	relation: RelationState,
+	predicate: SQL,
+) => {
+	if (context.scopes === undefined) return predicate;
+	const scope = scopePredicate(context, targetRuntime);
+	const through = relation.through;
+	if (!scope || !through) return predicate;
+	const conditions: SQL[] = [scope];
+	for (let index = 0; index < through.targetFields.length; index += 1) {
+		const pivotField = through.targetFields[index];
+		const targetField = relation.references[index];
+		if (pivotField && targetField)
+			conditions.push(eq(targetField, pivotField));
+	}
+	return and(
+		predicate,
+		exists(
+			context.db
+				.select({ one: sql`1` })
+				.from(targetRuntime.table)
+				.where(and(...conditions)),
+		),
+	) as SQL;
+};
+
 const connectPivot = async <Schema extends AnySchema, Meta>(
 	context: RuntimeContext<Schema, Meta>,
 	parentRuntime: TableRuntime,
@@ -1220,7 +1290,7 @@ const connectPivot = async <Schema extends AnySchema, Meta>(
 	const existing = await context.db
 		.select()
 		.from(throughRuntime.table)
-		.where(predicate)
+		.where(scoped(context, throughRuntime, predicate))
 		.limit(1);
 	if (existing.length) return;
 	const data = Object.create(null) as Record<string, unknown>;
@@ -1238,7 +1308,9 @@ const connectPivot = async <Schema extends AnySchema, Meta>(
 			data[columnKey(throughRuntime, pivotField)] =
 				target[columnKey(targetRuntime, targetField)];
 	}
-	await context.db.insert(throughRuntime.table).values(data);
+	await context.db
+		.insert(throughRuntime.table)
+		.values(stampInsert(context, throughRuntime, data));
 };
 
 const applyManyToManyRelation = async <Schema extends AnySchema, Meta>(
@@ -1268,7 +1340,21 @@ const applyManyToManyRelation = async <Schema extends AnySchema, Meta>(
 			relation,
 		);
 		if (predicate)
-			await context.db.delete(throughRuntime.table).where(predicate);
+			await context.db
+				.delete(throughRuntime.table)
+				.where(
+					scoped(
+						context,
+						throughRuntime,
+						inScopeTargets(
+							context,
+							targetRuntime,
+							relation,
+							predicate,
+						),
+						true,
+					),
+				);
 		for (const target of await resolveSelectors(
 			context,
 			targetRuntime,
@@ -1300,7 +1386,9 @@ const applyManyToManyRelation = async <Schema extends AnySchema, Meta>(
 			relation,
 		);
 		if (predicate)
-			await context.db.delete(throughRuntime.table).where(predicate);
+			await context.db
+				.delete(throughRuntime.table)
+				.where(scoped(context, throughRuntime, predicate, true));
 	}
 	for (const target of await resolveSelectors(
 		context,

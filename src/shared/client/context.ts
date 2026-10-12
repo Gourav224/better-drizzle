@@ -486,14 +486,27 @@ export const getArgsMeta = <Meta>(args: unknown): Meta | undefined =>
 export const mergeMeta = <Meta>(
 	scopedMeta: Meta | undefined,
 	operationMeta: Meta | undefined,
+	allowBypassOverride = false,
 ): Meta | undefined => {
 	if (operationMeta === undefined) return scopedMeta;
 	if (scopedMeta === undefined) return operationMeta;
 
-	return {
+	const merged = {
 		...(scopedMeta as Record<string, unknown>),
 		...(operationMeta as Record<string, unknown>),
-	} as Meta;
+	};
+	// A bypass reason is an audit fact set by a scope transition. A caller's
+	// operation or context metadata must not replace it.
+	if (
+		!allowBypassOverride &&
+		scopedMeta !== null &&
+		typeof scopedMeta === 'object' &&
+		Object.hasOwn(scopedMeta, 'tenantBypass')
+	)
+		merged.tenantBypass = (
+			scopedMeta as Record<string, unknown>
+		).tenantBypass;
+	return merged as Meta;
 };
 
 export function getMeta<Meta>(args: unknown): Meta | undefined;

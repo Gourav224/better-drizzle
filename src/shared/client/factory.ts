@@ -6,6 +6,7 @@ import type {
 	BetterClientHooks,
 	BetterClientOptions,
 	BetterDrizzleClient,
+	BetterRootClient,
 	BetterDrizzleTransactionClient,
 	BetterMeta,
 	BetterTableKey,
@@ -40,7 +41,7 @@ import {
 	runPluginRawHooks,
 	runPluginTransactionHooks,
 } from './plugins';
-import { withScope } from './scopes';
+import { applySession, needsSession, runSessionSql, withScope } from './scopes';
 
 class TransactionRollbackSignal {
 	reason?: unknown;
@@ -423,6 +424,8 @@ const mergeTransactionQueues = (
 ) => {
 	parent.afterCommit.push(...child.afterCommit);
 	parent.afterRollback.push(...child.afterRollback);
+	// A released savepoint keeps its session settings.
+	parent.sessionScopes = child.sessionScopes;
 };
 
 const finishTransactionCommit = async <
@@ -540,6 +543,7 @@ const createTransactionState = (
 	name: options?.name,
 	options: options ?? {},
 	parent: parent ?? undefined,
+	sessionScopes: parent?.sessionScopes,
 });
 
 const getSqliteSavepointName = (transaction: TransactionRuntime) =>
@@ -723,9 +727,10 @@ const executeRawQuery = async <
 	};
 
 	await runRawHooks(context, 'beforeRaw', buildPayload(undefined));
-
 	try {
-		const result = await withAbortGuard(rawOptions, () => executor(query));
+		const result = await runSessionSql(context, () =>
+			withAbortGuard(rawOptions, () => executor(query)),
+		);
 		await runRawHooks(context, 'afterRaw', buildPayload(result));
 		return result;
 	} catch (error) {
@@ -743,6 +748,19 @@ const executeRawQuery = async <
 		throw normalized;
 	}
 };
+
+// A standalone raw call of a `rawSession` scope runs inside a transaction
+// that applies the session statements first.
+const runRawInSession = (
+	client: Record<string, unknown>,
+	method: '$executeRaw' | '$raw' | '$rawUnsafe',
+	args: unknown[],
+) =>
+	(
+		client.transaction as (
+			callback: (tx: Record<string, unknown>) => unknown,
+		) => Promise<never>
+	)((tx) => (tx[method] as (...values: unknown[]) => unknown)(...args));
 
 type BoundClient<
 	Schema extends AnySchema,
@@ -865,6 +883,7 @@ const runBetterTransaction = async <
 			try {
 				if (attemptState.abortError) throw attemptState.abortError;
 
+				await applySession(attemptContext);
 				await runTransactionHooks(
 					attemptContext,
 					'beforeTransaction',
@@ -967,6 +986,7 @@ const runBetterTransaction = async <
 						if (attemptState.abortError)
 							throw attemptState.abortError;
 
+						await applySession(attemptContext);
 						await runTransactionHooks(
 							attemptContext,
 							'beforeTransaction',
@@ -1150,6 +1170,11 @@ export const createBoundClient = <
 		queryOrStrings: TemplateStringsArray | RawSql,
 		...paramsOrOptions: unknown[]
 	) => {
+		if (needsSession(context, true))
+			return runRawInSession(client, '$raw', [
+				queryOrStrings,
+				...paramsOrOptions,
+			]);
 		const rawOptions = (
 			isTemplateStringsArray(queryOrStrings)
 				? {}
@@ -1194,6 +1219,11 @@ export const createBoundClient = <
 		queryOrStrings: TemplateStringsArray | RawSql,
 		...paramsOrOptions: unknown[]
 	) => {
+		if (needsSession(context, true))
+			return runRawInSession(client, '$executeRaw', [
+				queryOrStrings,
+				...paramsOrOptions,
+			]);
 		const rawOptions = (
 			isTemplateStringsArray(queryOrStrings)
 				? {}
@@ -1260,6 +1290,12 @@ export const createBoundClient = <
 		params?: unknown[],
 		options?: RawOptions<unknown, unknown, Meta>,
 	) => {
+		if (needsSession(context, true))
+			return runRawInSession(client, '$rawUnsafe', [
+				query,
+				params,
+				options,
+			]);
 		const rawOptions = (options ?? {}) as RawOptions<
 			unknown,
 			unknown,
@@ -1404,7 +1440,7 @@ export const better = <
 ) => {
 	const context = createRuntimeContext(drizzle, options);
 	initializePlugins(context);
-	return createBoundClient(context) as BetterDrizzleClient<
+	return createBoundClient(context) as BetterRootClient<
 		Schema,
 		Meta,
 		Plugins
