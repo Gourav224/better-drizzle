@@ -1,4 +1,8 @@
-import type { AnySchema, BetterTableKey } from 'better-drizzle';
+import type {
+	AnySchema,
+	BetterTableKey,
+	PluginModelInfo,
+} from 'better-drizzle';
 import {
 	getColumns,
 	getTableName,
@@ -61,9 +65,15 @@ export type ZodSchemasRegistry = {
 	getUpsertManyArgsSchema(tableName: string): z.ZodObject;
 };
 
+/** Models whose `generated` columns are optional in create schemas. */
+export type GeneratedModels = Readonly<
+	Record<string, Pick<PluginModelInfo, 'generated'>>
+>;
+
 export const createZodSchemasRegistry = <Schema extends AnySchema>(
 	schema: Schema,
 	options: ZodPluginOptions<Schema>,
+	models?: GeneratedModels,
 ): ZodSchemasRegistry => {
 	const behavior = options.behavior;
 	const relational = schema as unknown as TablesRelationalConfig;
@@ -84,6 +94,7 @@ export const createZodSchemasRegistry = <Schema extends AnySchema>(
 			key,
 			dbName,
 			'create',
+			models?.[tableName]?.generated,
 		);
 		const selectShape = buildRowShape(
 			columns,

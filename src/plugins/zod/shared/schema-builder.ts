@@ -2,6 +2,7 @@ import type { AnySchema, BetterTableKey, TableKey } from 'better-drizzle';
 import type { AnyColumn, Table } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { isBinaryUuid } from '../../uuid/shared/binary';
 import type { ZodPluginBehavior, ZodPluginOptions } from '../types';
 
 export type RelationMeta = {
@@ -64,8 +65,12 @@ const applyUnknownKeys = (
 	return schema.strip();
 };
 
+// `buuid()` stores bytes but reads and writes UUID strings.
 const sqlTypeIncludes = (column: AnyColumn, token: string) =>
-	column.getSQLType().toLowerCase().includes(token);
+	(isBinaryUuid(column)
+		? 'uuid'
+		: column.getSQLType().toLowerCase()
+	).includes(token);
 
 const hasCoerce = (
 	behavior: ZodPluginBehavior | undefined,
@@ -263,6 +268,7 @@ export const buildRowShape = <
 	tableName: Name,
 	dbName: string,
 	mode: SchemaMode,
+	generated?: readonly string[],
 ) => {
 	const shape: Record<string, z.ZodTypeAny> = Object.create(null);
 	const fieldOverrides = getFieldOverrides(options, tableName, dbName);
@@ -282,11 +288,14 @@ export const buildRowShape = <
 					? createArrayMutationSchema(overridden)
 					: createScalarMutationSchema(column)
 				: undefined;
-		shape[columnName] = applyColumnRules(
+		const next = applyColumnRules(
 			mutation ? z.union([overridden, mutation]) : overridden,
 			column,
 			mode,
 		);
+		shape[columnName] = generated?.includes(columnName)
+			? next.optional()
+			: next;
 	}
 
 	return shape;

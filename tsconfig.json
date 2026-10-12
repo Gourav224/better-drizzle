@@ -15,6 +15,9 @@
 				"./src/plugins/soft-delete/index.ts"
 			],
 			"better-drizzle/timestamps": ["./src/plugins/timestamps/index.ts"],
+			"better-drizzle/uuid": ["./src/plugins/uuid/index.ts"],
+			"better-drizzle/uuid/mysql": ["./src/plugins/uuid/mysql.ts"],
+			"better-drizzle/uuid/sqlite": ["./src/plugins/uuid/sqlite.ts"],
 			"better-drizzle/zod": ["./src/plugins/zod/index.ts"],
 			"better-drizzle/eslint": ["./src/plugins/eslint/index.ts"]
 		},

@@ -1,0 +1,166 @@
+---
+title: UUIDs
+description: Fill UUIDv7 or UUIDv4 primary keys on create, with optional ids in create types and 16-byte storage on MySQL and SQLite.
+icon: FingerprintPattern
+seoTitle: 'UUID Plugin - UUIDv7 Primary Keys'
+seoDescription: 'Generate UUIDv7 or UUIDv4 primary keys for Drizzle ORM on create, with optional ids in create types and 16-byte storage on MySQL and SQLite.'
+---
+
+`better-drizzle/uuid` fills UUID id columns when a create leaves them out. Ids default to UUIDv7, which sorts by creation time, so new rows land at the end of the primary key index instead of at random pages.
+
+## Install
+
+<Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
+
+<Tab value="npm">
+
+```bash
+npm install better-drizzle
+```
+
+</Tab>
+
+<Tab value="pnpm">
+
+```bash
+pnpm add better-drizzle
+```
+
+</Tab>
+
+<Tab value="yarn">
+
+```bash
+yarn add better-drizzle
+```
+
+</Tab>
+
+<Tab value="bun">
+
+```bash
+bun add better-drizzle
+```
+
+</Tab>
+
+</Tabs>
+
+## Usage
+
+```ts
+import { better } from 'better-drizzle';
+import { uuids } from 'better-drizzle/uuid';
+
+const client = better(db, { plugins: [uuids()] });
+```
+
+```ts tab="better-drizzle" tab-group="orm"
+const { id } = await client.users.create({
+	data: { email: 'alice@example.com', name: 'Alice' },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { uuidv7 } from 'better-drizzle/uuid';
+
+const [{ id }] = await db
+	.insert(users)
+	.values({ id: uuidv7(), email: 'alice@example.com', name: 'Alice' })
+	.returning({ id: users.id });
+```
+
+The `id` column becomes optional in the input types of `create`, `createMany`, `upsert`, and `upsertMany`, even when the schema declares no default. Without the plugin, or on a non-string `id`, it stays required. The static types of `$zod.create` still list it as required, although the runtime schema accepts rows without it.
+
+## Options
+
+Every option is optional.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `column` | `'id'` | column key filled on every model that has it as a string or `buuid()` column |
+| `version` | `7` | `7` for time-ordered ids, `4` for random ids (`crypto.randomUUID()`) |
+| `models` | `{}` | per-model overrides keyed by table key: a column key, or `false` |
+
+## Which columns are filled
+
+The plugin fills a model's `column` when it is a text column (`text`, `varchar`, `char`), a PostgreSQL `uuid`, or a `buuid()` column. Models without that column, or with any other type (an auto-increment integer, a string-mode `bigint` or `numeric`, an enum), are skipped.
+
+`models` replaces the column for one model or turns the plugin off for it:
+
+```ts
+uuids({
+	models: {
+		apiKeys: 'key',
+		legacyOrders: false,
+	},
+});
+```
+
+An overridden column must exist and be a string or `buuid()` column, or `better()` throws `PLUGIN_REQUIRED_COLUMN_MISSING` or `PLUGIN_REQUIRED_COLUMN_TYPE`. Unknown model keys are ignored.
+
+## Operations
+
+| Operation | Behavior |
+| --- | --- |
+| `create` | fills the column when it is `undefined` |
+| `createMany` | fills every row that leaves it out |
+| `upsert` | fills the `create` branch; when `where` pins the id to a string, that id is inserted |
+| `upsertMany` | fills every row; the id is insert-only, so `update: 'all'` and column lists never write it on conflict |
+| updates, deletes, reads | untouched |
+
+On MySQL, `ON DUPLICATE KEY UPDATE` fires on any unique key, so `upsertMany` rejects rows that set a unique key other than its target, and the plugin always sets the id. With the plugin, MySQL `upsertMany` works when it targets the id on tables with no other unique key; otherwise use `upsert`. A single `upsert` by another unique key also leaves the native path, because `create` now carries the id, and runs as a read followed by a write.
+
+An explicit value always wins, including `null`. The plugin writes ids in the application, so they are known before the insert and appear in hook payloads after the plugin runs.
+
+## UUIDv7
+
+`uuidv7()` follows RFC 9562: a 48-bit millisecond timestamp, a 42-bit counter seeded randomly every millisecond, and 32 random bits. Ids from one process sort in creation order, including many ids in the same millisecond. `uuidv7()` and `uuidv4()` are exported for tests, seeds, or Drizzle `$defaultFn`:
+
+```ts
+import { uuidv7 } from 'better-drizzle/uuid';
+
+const id = uuidv7(); // '0199d6f2-6c1e-7a3b-8f12-4c5d6e7f8a9b'
+```
+
+## Binary storage with `buuid()`
+
+PostgreSQL's `uuid` type already stores 16 bytes. On MySQL and SQLite, a `char(36)` or `text` id takes more than twice that. `buuid()` stores the id as 16 bytes (`binary(16)` on MySQL, `blob` on SQLite) and is typed as `string`, so writes, filters, and results use the usual hyphenated form:
+
+```ts
+import { mysqlTable, varchar } from 'drizzle-orm/mysql-core';
+import { buuid } from 'better-drizzle/uuid/mysql';
+
+export const users = mysqlTable('users', {
+	id: buuid('id').primaryKey(),
+	email: varchar('email', { length: 255 }).notNull(),
+});
+```
+
+```ts
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { buuid } from 'better-drizzle/uuid/sqlite';
+
+export const users = sqliteTable('users', {
+	id: buuid('id').primaryKey(),
+	email: text('email').notNull(),
+});
+```
+
+```ts
+const user = await client.users.findUnique({
+	where: { id: '0199d6f2-6c1e-7a3b-8f12-4c5d6e7f8a9b' },
+});
+```
+
+The conversion lives in the column, so it also applies to raw Drizzle queries, including nested `db.query` relations. A filter value that is not a UUID throws before the query runs. Pattern filters (`contains`, `startsWith`, `endsWith`) compare bytes with text and match nothing; filter by the full id instead. Upper-case input is accepted and read back in lower case, so pass ids in lower case when the cache plugin keys reads by id.
+
+## With zod and ata
+
+`better-drizzle/zod` and `better-drizzle/ata` treat filled columns as optional in their create schemas, in any plugin order, and validate `buuid()` columns as UUID strings.
+
+## Behavior details
+
+- Columns are resolved once when the client is created.
+- Write payloads are copied, never mutated.
+- `$withoutPlugins()` skips the plugin; the id is then required at runtime, although the types still mark it optional.

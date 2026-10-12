@@ -319,7 +319,7 @@ Client hooks run before plugin hooks for transaction and raw events.
 | --- | --- |
 | `addHook(hooks)` | register a hooks object, same shape as `hooks` |
 | `addTransform(fn)` | register a transform, same shape as `transform` |
-| `models` | model registry keyed by schema key: `name`, `dbName`, `columns`, `hasColumn()`, `primaryKey`, `relations` |
+| `models` | model registry keyed by schema key: `name`, `dbName`, `columns`, `generated`, `hasColumn()`, `primaryKey`, `relations` |
 | `isColumnExists(model, column)` | `true` when the model exists and has the column |
 | `dialect` | `'pg'`, `'mysql'`, or `'sqlite'` |
 | `schema` | the relations config from `defineRelations(...)`, keyed by table key: `{ table, name, relations }` per entry. Iterate `models` for column metadata |
@@ -347,10 +347,36 @@ Each `requires.columns` entry takes `column` (required), `optional`, and `type`.
 | --- | --- |
 | `PLUGIN_DUPLICATE_ID` | two plugins share an `id` |
 | `PLUGIN_DIALECT_UNSUPPORTED` | the dialect is not in `config.dialects` |
-| `PLUGIN_REQUIRED_COLUMN_MISSING` | a model lacks a required (non-`optional`) `config.requires.columns` column |
-| `PLUGIN_REQUIRED_COLUMN_TYPE` | a required column exists but its `columnType` / `dataType` does not match `type` |
+| `PLUGIN_REQUIRED_COLUMN_MISSING` | a model lacks a required (non-`optional`) `config.requires.columns` column, or a `generated.models` override column |
+| `PLUGIN_REQUIRED_COLUMN_TYPE` | a required column exists but its `columnType` / `dataType` does not match `type`, or `generated.accepts` rejects an override column |
 | `PLUGIN_OPERATION_ARG_CONFLICT` | two plugins declare the same operation arg on one operation |
 | `PLUGIN_EXTENSION_CONFLICT` | an extension key collides with an existing client or delegate key |
+
+## Generated columns
+
+A plugin that fills a column on create declares it in `generated`. Better Drizzle resolves it per model before any `setup()` runs, lists the result in `model.generated`, and makes the column optional in the input types of `create`, `createMany`, `upsert`, and `upsertMany`. The zod and ata plugins read `model.generated` too, so their create schemas accept rows without it. The plugin still fills the value itself in `beforeCreate`.
+
+```ts
+import { definePlugin, type PluginGeneratedColumns } from 'better-drizzle';
+
+const plugin = definePlugin({
+	id: 'slugs',
+	generated: {
+		column: 'slug',
+		accepts: (column) => column.dataType === 'string',
+	},
+	setup({ addHook, models }) {
+		// fill `slug` in beforeCreate for models whose `generated` lists it
+	},
+});
+
+export const slugs = () =>
+	plugin as Omit<typeof plugin, 'generated'> & {
+		generated: PluginGeneratedColumns<'slug', Record<never, never>, string>;
+	};
+```
+
+`column` is filled on every model that has it and passes `accepts`; other models are skipped. `model.generated` merges every plugin, so re-check `accepts` before filling. `models` overrides the column per table key or turns it off with `false`; an override that is missing or rejected by `accepts` fails at bootstrap. The type-level change needs the literal `PluginGeneratedColumns<Column, Models, Value>` on the returned plugin type, as above; a plain `string` column changes no types, and a column whose insert type does not accept `Value` stays required. Wrap the factory's return type in `NoInfer` when its generics have defaults, or `better(db, { plugins: [factory()] })` infers them from `AnyPlugin`.
 
 ## Client and model extensions
 

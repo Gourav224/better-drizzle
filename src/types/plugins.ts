@@ -94,6 +94,37 @@ export type PluginConfig = {
 };
 
 /**
+ * Columns a plugin fills on create. Better Drizzle resolves them per model
+ * before any plugin `setup()` runs, exposes the result as
+ * {@link PluginModelInfo.generated}, and makes them optional in the create
+ * input types of `create`, `createMany`, `upsert`, and `upsertMany`.
+ *
+ * @typeParam Column - Default column key.
+ * @typeParam Models - Per-model overrides keyed by table key.
+ * @typeParam Value  - Value the plugin writes; columns whose insert type does
+ *   not accept it stay required.
+ */
+export type PluginGeneratedColumns<
+	Column extends string = string,
+	Models extends Readonly<Record<string, string | false>> = Readonly<
+		Record<string, string | false>
+	>,
+	Value = unknown,
+> = {
+	/**
+	 * Filters columns the plugin can fill. Models whose default column is
+	 * rejected are skipped; a rejected override throws.
+	 */
+	accepts?(column: AnyColumn): boolean;
+	/** Column key filled on every model that has it. */
+	column: Column;
+	/** Overrides keyed by table key: a column key, or `false` to skip the model. Overridden columns must exist. */
+	models?: Models;
+	/** Type-only: carries `Value`; never read at runtime. */
+	readonly value?: Value;
+};
+
+/**
  * Descriptive metadata for a plugin. Returned by {@link definePlugin} and
  * forwarded to setup contexts and extension callbacks.
  *
@@ -127,6 +158,8 @@ export type PluginModelInfo<
 	columns: Record<string, AnyColumn>;
 	/** The database table name. */
 	dbName: string;
+	/** Column keys filled by plugins on create (see {@link PluginGeneratedColumns}). */
+	generated: readonly string[];
 	/** Checks whether a column with the given name exists on this model. */
 	hasColumn(column: string): boolean;
 	/** The TypeScript table key. */
@@ -1016,6 +1049,8 @@ export interface Plugin<
 > extends PluginMeta<Options> {
 	/** Static configuration controlling dialect support and model requirements. */
 	config?: PluginConfig;
+	/** Columns filled on create; they become optional in create input types. */
+	generated?: PluginGeneratedColumns;
 	/** Extends the client with additional methods and properties. */
 	extendClient?<
 		Schema extends AnySchema,
@@ -1233,6 +1268,54 @@ export type OperationArgsOf<PluginDef> =
 	>
 		? OperationArgs
 		: Record<never, never>;
+
+type GeneratedColumnOf<Generated, Name extends string, Insert> =
+	Generated extends PluginGeneratedColumns<
+		infer Column,
+		infer Models,
+		infer Value
+	>
+		? Extract<
+				string extends keyof Models
+					? string extends Column
+						? never
+						: Column
+					: Name extends keyof Models
+						? Models[Name] extends string
+							? Models[Name]
+							: never
+						: string extends Column
+							? never
+							: Column,
+				{
+					[K in keyof Insert]-?: NonNullable<Insert[K]> extends Value
+						? K
+						: never;
+				}[keyof Insert]
+			>
+		: never;
+
+/**
+ * Union of the column keys that plugins in a tuple fill on create for one
+ * table. Plugins without a literal `generated` declaration contribute none.
+ *
+ * @typeParam Plugins - The plugin tuple.
+ * @typeParam Schema  - The Drizzle schema type.
+ * @typeParam Name    - The table key within the schema.
+ */
+export type GeneratedColumnsOf<
+	Plugins extends readonly AnyPlugin[],
+	Schema extends AnySchema,
+	Name extends TableKey<Schema>,
+> = Plugins[number] extends infer PluginDef
+	? PluginDef extends { generated?: infer Generated }
+		? GeneratedColumnOf<
+				NonNullable<Generated>,
+				Name & string,
+				InsertModelFor<Schema, Name>
+			>
+		: never
+	: never;
 
 /**
  * Converts a union type `A | B` into an intersection type `A & B`.

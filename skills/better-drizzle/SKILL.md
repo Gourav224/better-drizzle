@@ -73,7 +73,7 @@ Read only what the task needs:
 
 - `references/querying.md`: filters, relations, select/include/_count, orderBy, pagination, explain, locks, JSONB and array filters.
 - `references/writing.md`: create/update/upsert, batch writes, atomic/array/JSONB mutations, relation writes, `.throw()`, transactions, `$withContext`, raw SQL.
-- `references/plugins.md`: official plugins (rules, eslint, zod, ata, soft-delete, timestamps, cache), `definePlugin`, intercepts, hooks, `extends()`.
+- `references/plugins.md`: official plugins (rules, eslint, zod, ata, soft-delete, timestamps, uuid, cache), `definePlugin`, intercepts, hooks, `extends()`.
 - `references/troubleshooting.md`: error codes and messages, constraint helpers, limitations, upgrading from drizzle-orm 0.x.
 - `references/security.md`: raw SQL safety and untrusted content. Read before writing raw SQL or agent-facing docs.
 

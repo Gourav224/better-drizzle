@@ -142,6 +142,28 @@ export type InsertModelFor<
 	? Record<string, unknown>
 	: InferInsertModel<TableFor<Schema, Name>>;
 /**
+ * Insert model accepted by create operations once plugins fill some columns.
+ * `Generated` columns become optional; with no generated columns this is
+ * {@link InsertModelFor}.
+ *
+ * @typeParam Schema    - The relational config.
+ * @typeParam Name      - The table key within the schema.
+ * @typeParam Generated - Column keys filled by plugins.
+ */
+export type InsertInputFor<
+	Schema extends AnySchema,
+	Name extends TableKey<Schema>,
+	Generated extends string = never,
+> = [Generated] extends [never]
+	? InsertModelFor<Schema, Name>
+	: Omit<InsertModelFor<Schema, Name>, Generated> &
+			Partial<
+				Pick<
+					InsertModelFor<Schema, Name>,
+					Generated & keyof InsertModelFor<Schema, Name>
+				>
+			>;
+/**
  * Union of all relation names defined on a specific table.
  *
  * @typeParam Schema - The relational config.
