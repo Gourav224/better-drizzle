@@ -539,3 +539,56 @@ describe('model scopes on relation filters', () => {
 		).toEqual([2]);
 	});
 });
+
+describe('model scopes on _count and relation sorts', () => {
+	test('include._count counts only in-scope rows', async () => {
+		const { eu } = setup();
+
+		const users = await eu.users.findMany({
+			include: { _count: { select: { posts: true } } },
+			orderBy: { id: 'asc' },
+		});
+		expect(users.map((user) => user._count.posts)).toEqual([1, 1]);
+
+		const filtered = await eu.users.findMany({
+			include: {
+				_count: {
+					select: {
+						posts: { where: { title: { startsWith: 'us' } } },
+					},
+				},
+			},
+			orderBy: { id: 'asc' },
+		});
+		expect(filtered.map((user) => user._count.posts)).toEqual([0, 0]);
+
+		const posts = await eu.posts.findMany({
+			include: { _count: { select: { tags: true } } },
+			orderBy: { id: 'asc' },
+		});
+		expect(posts.map((post) => post._count.tags)).toEqual([1, 0, 0]);
+	});
+
+	test('orderBy a one-relation field reads only in-scope targets', async () => {
+		const { eu } = setup();
+
+		const posts = await eu.posts.findMany({
+			orderBy: [{ author: { name: 'desc' } }, { id: 'asc' }],
+		});
+		expect(ids(posts)).toEqual([3, 1, 5]);
+	});
+
+	test('orderBy _count counts only in-scope rows', async () => {
+		const { eu } = setup();
+
+		const users = await eu.users.findMany({
+			orderBy: [{ posts: { _count: 'asc' } }, { id: 'asc' }],
+		});
+		expect(ids(users)).toEqual([1, 3]);
+
+		const posts = await eu.posts.findMany({
+			orderBy: [{ tags: { _count: 'asc' } }, { id: 'asc' }],
+		});
+		expect(ids(posts)).toEqual([3, 5, 1]);
+	});
+});

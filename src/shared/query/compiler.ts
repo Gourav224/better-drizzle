@@ -1468,7 +1468,7 @@ const compileRelationOrder = <Schema extends AnySchema, Meta>(
 		const subquery = sql`(${context.db
 			.select({ value: expression as SQL })
 			.from(table)
-			.where(and(...links))
+			.where(and(...links, scopePredicate(context, target, alias)))
 			.limit(1)})`;
 		return wrap ? wrap(subquery) : subquery;
 	};
@@ -1537,7 +1537,13 @@ export const buildRelationCount = <Schema extends AnySchema, Meta>(
 		return sql<number>`(${context.db
 			.select({ value: sql<number>`count(*)` })
 			.from(targetTable)
-			.where(and(...links, nestedWhere))})`;
+			.where(
+				and(
+					...links,
+					nestedWhere,
+					scopePredicate(context, targetRuntime, alias),
+				),
+			)})`;
 	}
 
 	const through = relation.through as NonNullable<typeof relation.through>;
@@ -1572,7 +1578,14 @@ export const buildRelationCount = <Schema extends AnySchema, Meta>(
 		.select({ value: sql<number>`count(*)` })
 		.from(throughTable)
 		.innerJoin(targetTable, and(...joins))
-		.where(and(...links, nestedWhere))})`;
+		.where(
+			and(
+				...links,
+				nestedWhere,
+				scopePredicate(context, throughRuntime, throughAlias),
+				scopePredicate(context, targetRuntime, alias),
+			),
+		)})`;
 };
 
 /**
