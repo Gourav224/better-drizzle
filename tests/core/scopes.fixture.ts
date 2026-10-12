@@ -35,6 +35,7 @@ const tags = sqliteTable('scope_tags', {
 const postTags = sqliteTable('scope_post_tags', {
 	postId: integer('post_id').notNull(),
 	tagId: integer('tag_id').notNull(),
+	region: text('region').notNull(),
 });
 
 const categories = sqliteTable('scope_categories', {
@@ -145,14 +146,14 @@ CREATE TABLE scope_users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, region TEX
 CREATE TABLE scope_profiles (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, bio TEXT NOT NULL, region TEXT NOT NULL);
 CREATE TABLE scope_posts (id INTEGER PRIMARY KEY, author_id INTEGER NOT NULL, title TEXT NOT NULL, region TEXT NOT NULL);
 CREATE TABLE scope_tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL, region TEXT NOT NULL);
-CREATE TABLE scope_post_tags (post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL);
+CREATE TABLE scope_post_tags (post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, region TEXT NOT NULL);
 CREATE TABLE scope_categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, parent_id INTEGER, region TEXT NOT NULL);
 CREATE TABLE scope_notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
 INSERT INTO scope_users VALUES (1, 'Ann', 'eu'), (2, 'Bob', 'us'), (3, 'Cid', 'eu');
 INSERT INTO scope_profiles VALUES (1, 1, 'ann', 'eu'), (2, 2, 'bob', 'us'), (3, 3, 'cid', 'us');
 INSERT INTO scope_posts VALUES (1, 1, 'eu-1', 'eu'), (2, 2, 'us-1', 'us'), (3, 3, 'eu-2', 'eu'), (4, 1, 'us-2', 'us'), (5, 2, 'eu-3', 'eu');
 INSERT INTO scope_tags VALUES (1, 'eu-tag', 'eu'), (2, 'us-tag', 'us');
-INSERT INTO scope_post_tags VALUES (1, 1), (1, 2), (2, 2), (3, 1), (3, 2);
+INSERT INTO scope_post_tags VALUES (1, 1, 'eu'), (1, 2, 'eu'), (2, 2, 'us'), (3, 1, 'us'), (3, 2, 'us');
 INSERT INTO scope_categories VALUES (1, 'eu-root', NULL, 'eu'), (2, 'eu-child', 1, 'eu'), (3, 'us-child', 1, 'us'), (4, 'us-root', NULL, 'us');
 INSERT INTO scope_notes VALUES (1, 'n1'), (2, 'n2');
 `);

@@ -27,6 +27,7 @@ import {
 	compileWhereInput,
 } from '../query';
 import { getPrimaryKeyWhere, getTableRuntime, isSimpleRecord } from './context';
+import { scopePredicate } from './scopes';
 
 type RelationArgs = QueryArgs<AnySchema, never, unknown>;
 type RelationState = TableRuntime['relations'][string];
@@ -467,6 +468,7 @@ const loadRelation = async <Schema extends AnySchema, Meta>(
 	);
 	const orderBy = compileOrderBy(whereContext, args?.orderBy as never);
 	const page = relationPage(args);
+	const scope = scopePredicate(context, targetRuntime);
 	let rows: Record<string, unknown>[];
 	let parentKeyForRow: (row: Record<string, unknown>) => string | undefined;
 
@@ -474,6 +476,7 @@ const loadRelation = async <Schema extends AnySchema, Meta>(
 		const through = relation.through;
 		if (!through) return;
 		const throughRuntime = getTableRuntime(context, through.tableName);
+		const throughScope = scopePredicate(context, throughRuntime);
 		const link = buildLinkPredicate(
 			parentRuntime,
 			parents,
@@ -508,7 +511,15 @@ const loadRelation = async <Schema extends AnySchema, Meta>(
 					.select(selection)
 					.from(throughRuntime.table)
 					.innerJoin(targetRuntime.table, and(...joins))
-					.where(and(link, nestedWhere, cursorWhere))
+					.where(
+						and(
+							link,
+							nestedWhere,
+							cursorWhere,
+							scope,
+							throughScope,
+						),
+					)
 					.as('__better_relation');
 				rows = await selectRelationPage(
 					context,
@@ -521,7 +532,15 @@ const loadRelation = async <Schema extends AnySchema, Meta>(
 					.select(selection)
 					.from(throughRuntime.table)
 					.innerJoin(targetRuntime.table, and(...joins))
-					.where(and(link, nestedWhere, cursorWhere));
+					.where(
+						and(
+							link,
+							nestedWhere,
+							cursorWhere,
+							scope,
+							throughScope,
+						),
+					);
 				if (orderBy?.length) query = query.orderBy(...orderBy);
 				rows = await query;
 			}
@@ -555,7 +574,7 @@ const loadRelation = async <Schema extends AnySchema, Meta>(
 						),
 					})
 					.from(targetRuntime.table)
-					.where(and(link, nestedWhere, cursorWhere))
+					.where(and(link, nestedWhere, cursorWhere, scope))
 					.as('__better_relation');
 				rows = await selectRelationPage(
 					context,
@@ -567,7 +586,7 @@ const loadRelation = async <Schema extends AnySchema, Meta>(
 				let query = context.db
 					.select(target.selection)
 					.from(targetRuntime.table)
-					.where(and(link, nestedWhere, cursorWhere));
+					.where(and(link, nestedWhere, cursorWhere, scope));
 				if (orderBy?.length) query = query.orderBy(...orderBy);
 				rows = await query;
 			}

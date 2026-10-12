@@ -347,3 +347,107 @@ describe('model scopes on $where, prepared reads, and explain', () => {
 		expect(count?.params).toEqual(['eu']);
 	});
 });
+
+describe('model scopes on relation loads', () => {
+	test('one relations load only in-scope targets', async () => {
+		const { eu } = setup();
+
+		const posts = await eu.posts.findMany({
+			include: { author: true },
+			orderBy: { id: 'asc' },
+		});
+		expect(posts.map((post) => post.author?.name ?? null)).toEqual([
+			'Ann',
+			'Cid',
+			null,
+		]);
+
+		const users = await eu.users.findMany({
+			include: { profile: true },
+			orderBy: { id: 'asc' },
+		});
+		expect(users.map((user) => user.profile?.bio ?? null)).toEqual([
+			'ann',
+			null,
+		]);
+	});
+
+	test('many relations load only in-scope targets', async () => {
+		const { eu } = setup();
+
+		const users = await eu.users.findMany({
+			include: { posts: { orderBy: { id: 'asc' } } },
+			orderBy: { id: 'asc' },
+		});
+		expect(users.map((user) => ids(user.posts))).toEqual([[1], [3]]);
+
+		const roots = await eu.categories.findMany({
+			include: { children: true },
+			where: { id: 1 },
+		});
+		expect(ids(roots[0]?.children ?? [])).toEqual([2]);
+	});
+
+	test('many-to-many relations scope both the junction and the target', async () => {
+		const { eu, us } = setup();
+
+		const euPosts = await eu.posts.findMany({
+			include: { tags: { orderBy: { id: 'asc' } } },
+			orderBy: { id: 'asc' },
+		});
+		// Post 1: tag 2 is out of scope; post 3: its junction rows are out of scope.
+		expect(euPosts.map((post) => ids(post.tags))).toEqual([[1], [], []]);
+
+		const usPosts = await us.posts.findMany({
+			include: { tags: true },
+			orderBy: { id: 'asc' },
+		});
+		expect(usPosts.map((post) => ids(post.tags))).toEqual([[2], []]);
+	});
+
+	test('nested levels and relation select stay scoped', async () => {
+		const { eu } = setup();
+
+		const users = await eu.users.findMany({
+			include: {
+				posts: { include: { author: true, tags: true } },
+			},
+			where: { id: 1 },
+		});
+		expect(ids(users[0]?.posts ?? [])).toEqual([1]);
+		expect(ids(users[0]?.posts[0]?.tags ?? [])).toEqual([1]);
+		expect(users[0]?.posts[0]?.author?.name).toBe('Ann');
+
+		const selected = await eu.posts.findMany({
+			orderBy: { id: 'asc' },
+			select: { author: { select: { name: true } }, id: true },
+		});
+		expect(selected).toEqual([
+			{ author: { name: 'Ann' }, id: 1 },
+			{ author: { name: 'Cid' }, id: 3 },
+			{ author: null, id: 5 },
+		]);
+	});
+
+	test('per-parent take and skip rank only in-scope rows', async () => {
+		const { eu } = setup();
+
+		const latest = await eu.users.findMany({
+			include: { posts: { orderBy: { id: 'desc' }, take: 1 } },
+			where: { id: 1 },
+		});
+		expect(ids(latest[0]?.posts ?? [])).toEqual([1]);
+
+		const skipped = await eu.users.findMany({
+			include: { posts: { orderBy: { id: 'asc' }, skip: 1, take: 1 } },
+			where: { id: 1 },
+		});
+		expect(ids(skipped[0]?.posts ?? [])).toEqual([]);
+
+		const tags = await eu.posts.findMany({
+			include: { tags: { orderBy: { name: 'desc' }, take: 1 } },
+			where: { id: 1 },
+		});
+		expect(tags[0]?.tags.map((tag) => tag.name)).toEqual(['eu-tag']);
+	});
+});
