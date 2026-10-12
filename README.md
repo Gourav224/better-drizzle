@@ -275,6 +275,8 @@ const client = better(db, {
 
 That gets you runtime guardrails, automatic timestamps, soft deletes with `restore()`, and Zod schemas generated from your tables at `client.users.$zod`. Plugins can add their own typed operation args, so `client.users.findMany({ deleted: 'only' })` type-checks.
 
+`better-drizzle/uuid` fills UUIDv7 ids on create and makes them optional in create types; `buuid()` stores them as 16 bytes on MySQL and SQLite. See [UUIDs](https://better-drizzle.com/docs/plugins/uuid).
+
 Pair `better-drizzle/eslint` with the runtime rules to catch the statically-checkable subset in your editor.
 
 `better-drizzle/ata` (experimental) validates the same operations against compiled JSON Schema, as a faster alternative to the Zod plugin. See [ata](https://better-drizzle.com/docs/plugins/ata).

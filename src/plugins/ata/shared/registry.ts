@@ -1,4 +1,5 @@
 import { Validator } from 'ata-validator';
+import type { PluginModelInfo } from 'better-drizzle';
 import {
 	type AnyColumn,
 	getColumns,
@@ -150,6 +151,7 @@ const rowSchema = (
 	columns: Record<string, AnyColumn>,
 	mode: 'create' | 'select' | 'update',
 	overrides: Record<string, false | JsonSchema> | undefined,
+	generated?: readonly string[],
 ): {
 	residueArrays: Record<string, number>;
 	residues: Record<string, ResidueKind>;
@@ -158,7 +160,9 @@ const rowSchema = (
 	const built = createRowValidator(columns, mode);
 	const { properties, required } = applyOverrides(
 		built.schema.properties,
-		built.schema.required,
+		generated?.length
+			? built.schema.required.filter((name) => !generated.includes(name))
+			: built.schema.required,
 		overrides,
 	);
 
@@ -198,6 +202,7 @@ export const createAtaSchemasRegistry = <
 >(
 	schema: Schema,
 	options: AtaPluginOptions = {},
+	models?: Readonly<Record<string, Pick<PluginModelInfo, 'generated'>>>,
 ): AtaSchemasRegistry => {
 	const entries = new Map<string, TableEntry>();
 	const tableNames: string[] = [];
@@ -226,7 +231,12 @@ export const createAtaSchemasRegistry = <
 		)?.[tableName]?.columns;
 
 		const selectRow = rowSchema(columns, 'select', overrides);
-		const create = rowSchema(columns, 'create', overrides);
+		const create = rowSchema(
+			columns,
+			'create',
+			overrides,
+			models?.[tableName]?.generated,
+		);
 		const update = rowSchema(columns, 'update', overrides);
 
 		const entry: TableEntry = {

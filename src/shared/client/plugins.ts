@@ -14,9 +14,11 @@ import type {
 	OperationArgsExtensionsOf,
 	OperationArgsWithPlugins,
 	PaginationArgs,
+	PluginGeneratedColumns,
 	PluginHookKind,
 	PluginHooks,
 	PluginMeta,
+	PluginModelInfo,
 	PluginOperationArgsExtensionMap,
 	PluginOperationInput,
 	PluginRuntimeAfterHook,
@@ -610,6 +612,53 @@ export const initializePlugins = <
 
 	for (const kind of Object.keys(context.plugins.byKind) as PluginHookKind[])
 		seenOperationArgs[kind] = Object.create(null) as Record<string, string>;
+
+	// Resolved before any setup() so plugins such as zod/ata see every
+	// generated column regardless of plugin order.
+	for (const plugin of plugins) {
+		const generated = plugin.generated as
+			| PluginGeneratedColumns
+			| undefined;
+		if (!generated) continue;
+
+		for (const model of Object.values(
+			context.models,
+		) as PluginModelInfo[]) {
+			const override = generated.models?.[model.name];
+			if (override === false) continue;
+
+			const key = override ?? generated.column;
+			const column = model.columns[key];
+			if (!column) {
+				if (override === undefined) continue;
+				throw new BetterDrizzleError({
+					code: BetterDrizzleErrorCode.PluginRequiredColumnMissing,
+					column: key,
+					message: `Plugin "${plugin.id}" requires column "${key}" on model "${model.name}".`,
+					table: model.name,
+					details: { pluginId: plugin.id },
+				});
+			}
+
+			if (generated.accepts && !generated.accepts(column)) {
+				if (override === undefined) continue;
+				throw new BetterDrizzleError({
+					code: BetterDrizzleErrorCode.PluginRequiredColumnType,
+					column: key,
+					message: `Plugin "${plugin.id}" cannot generate column "${key}" on model "${model.name}" (${column.columnType}, ${column.dataType}).`,
+					table: model.name,
+					details: {
+						columnType: column.columnType,
+						dataType: column.dataType,
+						pluginId: plugin.id,
+					},
+				});
+			}
+
+			if (!model.generated.includes(key))
+				(model.generated as string[]).push(key);
+		}
+	}
 
 	for (const plugin of plugins) {
 		if (seenIds.has(plugin.id))

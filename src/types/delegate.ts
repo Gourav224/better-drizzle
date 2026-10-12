@@ -18,6 +18,7 @@ import type {
 import type {
 	AnyPlugin,
 	ClientExtensionsOf,
+	GeneratedColumnsOf,
 	ModelExtensionsOf,
 	OperationArgsWithPlugins,
 	PluginState,
@@ -47,6 +48,7 @@ import type {
 import type {
 	AnySchema,
 	DbNameKey,
+	InsertInputFor,
 	InsertModelFor,
 	PgArrayKeysFor,
 	RelatedNameFor,
@@ -125,8 +127,9 @@ type AtLeastOne<T> = {
 export type CreateDataInput<
 	Schema extends AnySchema,
 	Name extends TableKey<Schema>,
+	Generated extends string = never,
 > =
-	| InsertModelFor<Schema, Name>
+	| InsertInputFor<Schema, Name, Generated>
 	| (Partial<InsertModelFor<Schema, Name>> &
 			AtLeastOne<CreateRelationData<Schema, Name>>);
 
@@ -416,9 +419,10 @@ export interface CreateArgs<
 	Schema extends AnySchema,
 	Name extends TableKey<Schema>,
 	Meta = import('./query').BetterMeta,
+	Generated extends string = never,
 > {
 	/** The row data to insert. */
-	data: CreateDataInput<Schema, Name>;
+	data: CreateDataInput<Schema, Name, Generated>;
 	/** Optional duplicate-skip handling for unique / primary key violations. */
 	skipDuplicates?: SkipDuplicatesOption<Schema, Name>;
 	/** Optional column / relation projection for the returned row. */
@@ -484,9 +488,10 @@ export interface CreateManyArgs<
 	Schema extends AnySchema,
 	Name extends TableKey<Schema>,
 	Meta = import('./query').BetterMeta,
+	Generated extends string = never,
 > {
 	/** Array of row data to insert. */
-	data: InsertModelFor<Schema, Name>[];
+	data: InsertInputFor<Schema, Name, Generated>[];
 	/** Optional duplicate-skip handling for unique / primary key violations. */
 	skipDuplicates?: SkipDuplicatesOption<Schema, Name>;
 	/** Optional column / relation projection for returned rows. */
@@ -715,11 +720,12 @@ export interface UpsertArgs<
 	Schema extends AnySchema,
 	Name extends TableKey<Schema>,
 	Meta = import('./query').BetterMeta,
+	Generated extends string = never,
 > {
 	/** Filter that determines whether to insert or update. */
 	where: WhereArg<Schema, Name>;
 	/** Row data used when no matching record exists. */
-	create: CreateDataInput<Schema, Name>;
+	create: CreateDataInput<Schema, Name, Generated>;
 	/** Partial column values applied when a matching record exists. */
 	update: UpdateDataInput<Schema, Name>;
 	/** Optional column / relation projection for the returned row. */
@@ -887,9 +893,10 @@ export interface UpsertManyArgs<
 	Schema extends AnySchema,
 	Name extends TableKey<Schema>,
 	Meta = import('./query').BetterMeta,
+	Generated extends string = never,
 > {
 	/** Rows to insert or update. */
-	data: InsertModelFor<Schema, Name>[];
+	data: InsertInputFor<Schema, Name, Generated>[];
 	/** Column or columns that define the conflict target. */
 	target: UpsertManyTarget<Schema, Name>;
 	/** Strategy used to build the update payload on conflict. */
@@ -1602,7 +1609,12 @@ export type BetterDrizzleModelDelegate<
 	 */
 	create<
 		Args extends OperationArgsWithPlugins<
-			CreateArgs<Schema, Name, Meta>,
+			CreateArgs<
+				Schema,
+				Name,
+				Meta,
+				GeneratedColumnsOf<Plugins, Schema, Name>
+			>,
 			Plugins,
 			'create'
 		>,
@@ -1610,14 +1622,24 @@ export type BetterDrizzleModelDelegate<
 		args: Args &
 			NoInfer<
 				OperationArgsWithPlugins<
-					CreateArgs<Schema, Name, Meta>,
+					CreateArgs<
+						Schema,
+						Name,
+						Meta,
+						GeneratedColumnsOf<Plugins, Schema, Name>
+					>,
 					Plugins,
 					'create'
 				> &
 					ArgsCheck<
 						Args,
 						OperationArgsWithPlugins<
-							CreateArgs<Schema, Name, Meta>,
+							CreateArgs<
+								Schema,
+								Name,
+								Meta,
+								GeneratedColumnsOf<Plugins, Schema, Name>
+							>,
 							Plugins,
 							'create'
 						>
@@ -1661,7 +1683,12 @@ export type BetterDrizzleModelDelegate<
 	 */
 	createMany<
 		Args extends OperationArgsWithPlugins<
-			CreateManyArgs<Schema, Name, Meta>,
+			CreateManyArgs<
+				Schema,
+				Name,
+				Meta,
+				GeneratedColumnsOf<Plugins, Schema, Name>
+			>,
 			Plugins,
 			'createMany'
 		>,
@@ -1669,14 +1696,24 @@ export type BetterDrizzleModelDelegate<
 		args: Args &
 			NoInfer<
 				OperationArgsWithPlugins<
-					CreateManyArgs<Schema, Name, Meta>,
+					CreateManyArgs<
+						Schema,
+						Name,
+						Meta,
+						GeneratedColumnsOf<Plugins, Schema, Name>
+					>,
 					Plugins,
 					'createMany'
 				> &
 					ArgsCheck<
 						Args,
 						OperationArgsWithPlugins<
-							CreateManyArgs<Schema, Name, Meta>,
+							CreateManyArgs<
+								Schema,
+								Name,
+								Meta,
+								GeneratedColumnsOf<Plugins, Schema, Name>
+							>,
 							Plugins,
 							'createMany'
 						>
@@ -1715,7 +1752,12 @@ export type BetterDrizzleModelDelegate<
 	 */
 	upsert<
 		Args extends OperationArgsWithPlugins<
-			UpsertArgs<Schema, Name, Meta>,
+			UpsertArgs<
+				Schema,
+				Name,
+				Meta,
+				GeneratedColumnsOf<Plugins, Schema, Name>
+			>,
 			Plugins,
 			'upsert'
 		>,
@@ -1723,14 +1765,24 @@ export type BetterDrizzleModelDelegate<
 		args: Args &
 			NoInfer<
 				OperationArgsWithPlugins<
-					UpsertArgs<Schema, Name, Meta>,
+					UpsertArgs<
+						Schema,
+						Name,
+						Meta,
+						GeneratedColumnsOf<Plugins, Schema, Name>
+					>,
 					Plugins,
 					'upsert'
 				> &
 					ArgsCheck<
 						Args,
 						OperationArgsWithPlugins<
-							UpsertArgs<Schema, Name, Meta>,
+							UpsertArgs<
+								Schema,
+								Name,
+								Meta,
+								GeneratedColumnsOf<Plugins, Schema, Name>
+							>,
 							Plugins,
 							'upsert'
 						>
@@ -1770,7 +1822,12 @@ export type BetterDrizzleModelDelegate<
 	 */
 	upsertMany<
 		Args extends OperationArgsWithPlugins<
-			UpsertManyArgs<Schema, Name, Meta>,
+			UpsertManyArgs<
+				Schema,
+				Name,
+				Meta,
+				GeneratedColumnsOf<Plugins, Schema, Name>
+			>,
 			Plugins,
 			'upsertMany'
 		>,
@@ -1778,14 +1835,24 @@ export type BetterDrizzleModelDelegate<
 		args: Args &
 			NoInfer<
 				OperationArgsWithPlugins<
-					UpsertManyArgs<Schema, Name, Meta>,
+					UpsertManyArgs<
+						Schema,
+						Name,
+						Meta,
+						GeneratedColumnsOf<Plugins, Schema, Name>
+					>,
 					Plugins,
 					'upsertMany'
 				> &
 					ArgsCheck<
 						Args,
 						OperationArgsWithPlugins<
-							UpsertManyArgs<Schema, Name, Meta>,
+							UpsertManyArgs<
+								Schema,
+								Name,
+								Meta,
+								GeneratedColumnsOf<Plugins, Schema, Name>
+							>,
 							Plugins,
 							'upsertMany'
 						>

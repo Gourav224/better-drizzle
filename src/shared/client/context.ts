@@ -297,6 +297,7 @@ export const createRuntimeContext = <
 		const model = {
 			columns,
 			dbName,
+			generated: [],
 			hasColumn(column: string) {
 				return column in columns;
 			},

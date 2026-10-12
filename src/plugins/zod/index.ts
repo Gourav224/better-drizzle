@@ -8,7 +8,10 @@ import {
 } from 'better-drizzle';
 import { z } from 'zod';
 
-import { createZodSchemasRegistry } from './shared/registry';
+import {
+	createZodSchemasRegistry,
+	type GeneratedModels,
+} from './shared/registry';
 import {
 	parseOrThrow,
 	preserveRelationCommands,
@@ -39,8 +42,9 @@ export const zod = <
 	let registry: ReturnType<typeof createZodSchemasRegistry<Schema>> | null =
 		null;
 
-	const getRegistry = (schema: Schema) => {
-		if (!registry) registry = createZodSchemasRegistry(schema, options);
+	const getRegistry = (schema: Schema, models?: GeneratedModels) => {
+		if (!registry)
+			registry = createZodSchemasRegistry(schema, options, models);
 		return registry;
 	};
 
@@ -457,7 +461,7 @@ export const zod = <
 		},
 		options,
 		setup(context) {
-			getRegistry(context.schema as unknown as Schema);
+			getRegistry(context.schema as unknown as Schema, context.models);
 		},
 		version,
 	});

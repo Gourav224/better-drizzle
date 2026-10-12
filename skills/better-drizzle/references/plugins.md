@@ -1,6 +1,6 @@
 # Plugins, hooks, and extensions
 
-Docs: `/docs/plugins/overview`, `/writing-plugins`, `/rules`, `/eslint`, `/zod`, `/ata`, `/soft-delete`, `/timestamps`, `/cache`, `/docs/advanced/hooks`, `/docs/guides/client-extensions` (all under `https://better-drizzle.com`).
+Docs: `/docs/plugins/overview`, `/writing-plugins`, `/rules`, `/eslint`, `/zod`, `/ata`, `/soft-delete`, `/timestamps`, `/uuid`, `/cache`, `/docs/advanced/hooks`, `/docs/guides/client-extensions` (all under `https://better-drizzle.com`).
 
 ## Official plugins
 
@@ -27,6 +27,7 @@ const client = better(db, {
 | `rules` | Runtime guardrails from hook payloads: no `deleteMany`/`updateMany` without `where`, `maxLimit`, orderBy for pagination, lock policy, `noRawUnsafe`, tenant/audit context, sensitive fields | presets `safe()`, `recommended()`, `strict()`; each rule takes `true`/`false`, `'off'\|'warn'\|'error'`, or `{ level, ...options }` |
 | `eslint` | Static subset of `rules` for direct call sites | `betterDrizzle.configs.{safe,recommended,strict}` flat configs |
 | `timestamps` | Fills `createdAt`/`updatedAt` on writes | `{ createdAt?, updatedAt?, mode?: 'app' \| 'database', now?: () => Date, models?: Record<tableKey, false \| { createdAt?, updatedAt? }> }`; writes `Date`, or ISO strings for text columns |
+| `uuids` (`better-drizzle/uuid`) | Fills a UUID id column on `create`/`createMany`/`upsert`/`upsertMany` when it is `undefined`; the column becomes optional in create input types, and zod/ata create schemas | `{ column?: 'id', version?: 7 \| 4, models?: Record<tableKey, string \| false> }`; only string or `buuid()` columns; also exports `uuidv7()`/`uuidv4()`. `buuid()` from `better-drizzle/uuid/mysql` or `/sqlite` stores 16 bytes typed as `string` |
 | `softDelete` | `delete`/`deleteMany` become updates; every read, update, and delete skips deleted rows (not `upsert`/`upsertMany` or includes) | arg `deleted: 'without' \| 'with' \| 'only'` on each; delete args `mode: 'hard'` (matches deleted rows too), `deletedBy`; `restore({ where })`, `restoreById(id)` |
 | `zod` | Per-table Zod schemas on `client.users.$zod.{create,update,upsert,select,where,orderBy,pagination,query}` plus validation | `validate` defaults: writes and `result` on, read args off; per call `validate: false` |
 | `ata` | The same idea with JSON Schema and compiled ata validators on `$ata` | `{ validate, tables: { users: { columns } }, precompile }` |

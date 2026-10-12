@@ -3,6 +3,7 @@ import {
 	BetterDrizzleError,
 	BetterDrizzleErrorCode,
 	definePlugin,
+	type ModelRegistry,
 } from 'better-drizzle';
 
 import { createAtaSchemasRegistry } from './shared/registry';
@@ -35,10 +36,11 @@ export const ata = <
 ) => {
 	let registry: ReturnType<typeof createAtaSchemasRegistry> | null = null;
 
-	const getRegistry = (schema: unknown) => {
+	const getRegistry = (schema: unknown, models?: ModelRegistry) => {
 		registry ??= createAtaSchemasRegistry(
 			schema as Record<string, unknown>,
 			options,
+			models,
 		);
 		return registry;
 	};
@@ -400,7 +402,7 @@ export const ata = <
 		},
 		options,
 		setup(context) {
-			getRegistry(context.schema);
+			getRegistry(context.schema, context.models);
 		},
 		version,
 	});

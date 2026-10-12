@@ -1,5 +1,7 @@
 import type { AnyColumn } from 'drizzle-orm';
 
+import { isBinaryUuid } from '../../uuid/shared/binary';
+
 /**
  * What a drizzle column becomes for ata.
  *
@@ -55,8 +57,12 @@ export const invalidResiduePath = (
 	return null;
 };
 
+// `buuid()` stores bytes but reads and writes UUID strings.
 const sqlTypeIncludes = (column: AnyColumn, token: string) =>
-	column.getSQLType().toLowerCase().includes(token);
+	(isBinaryUuid(column)
+		? 'uuid'
+		: column.getSQLType().toLowerCase()
+	).includes(token);
 
 const withNull = (
 	schema: Record<string, unknown>,

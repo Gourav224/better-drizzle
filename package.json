@@ -24,6 +24,7 @@
 		"type-safe",
 		"typescript",
 		"upsert",
+		"uuid",
 		"zod"
 	],
 	"homepage": "https://better-drizzle.com/",
@@ -136,6 +137,36 @@
 				"default": "./dist/timestamps.cjs"
 			}
 		},
+		"./uuid": {
+			"import": {
+				"types": "./dist/uuid.d.ts",
+				"default": "./dist/uuid.js"
+			},
+			"require": {
+				"types": "./dist/uuid.d.cts",
+				"default": "./dist/uuid.cjs"
+			}
+		},
+		"./uuid/mysql": {
+			"import": {
+				"types": "./dist/uuid/mysql.d.ts",
+				"default": "./dist/uuid/mysql.js"
+			},
+			"require": {
+				"types": "./dist/uuid/mysql.d.cts",
+				"default": "./dist/uuid/mysql.cjs"
+			}
+		},
+		"./uuid/sqlite": {
+			"import": {
+				"types": "./dist/uuid/sqlite.d.ts",
+				"default": "./dist/uuid/sqlite.js"
+			},
+			"require": {
+				"types": "./dist/uuid/sqlite.d.cts",
+				"default": "./dist/uuid/sqlite.cjs"
+			}
+		},
 		"./zod": {
 			"import": {
 				"types": "./dist/zod.d.ts",
@@ -163,7 +194,7 @@
 		"docs:dev": "bun run --filter @better-drizzle/web dev",
 		"docs:build": "bun run --filter @better-drizzle/web build",
 		"pack": "bun run build && npm pack --dry-run --ignore-scripts",
-		"test": "bun test tests/core tests/rules tests/eslint tests/timestamps tests/soft-delete tests/zod tests/ata tests/cache",
+		"test": "bun test tests/core tests/rules tests/eslint tests/timestamps tests/uuid tests/soft-delete tests/zod tests/ata tests/cache",
 		"test:mysql": "bun test tests/core/where.mysql.test.ts",
 		"test:databases": "bun test .pg.test.ts .mysql.test.ts .redis.test.ts",
 		"test:integration": "bun test tests/core/integration",
