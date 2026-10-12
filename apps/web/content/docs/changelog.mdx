@@ -1,22 +1,16 @@
 ---
 title: Changelog
-description: Upcoming changes and every change in better-drizzle 0.3.0 compared with 0.2.0, with links to the docs and commits.
+description: Every change in better-drizzle 0.3.0 compared with 0.2.0, with links to the docs and commits.
 icon: History
 seoTitle: 'Changelog - better-drizzle releases'
-seoDescription: 'Upcoming better-drizzle 0.4.0 relation ordering and changes in 0.3.0: Drizzle ORM 1.x support, breaking changes, prepared statements, caching, and fixes.'
+seoDescription: 'Changes in better-drizzle 0.3.0: Drizzle ORM 1.x support, breaking changes, prepared statements, relation ordering, caching, UUIDs, and fixes.'
 ---
 
-## 0.4.0 - Unreleased
-
-- **Binary filters.** Bare `Buffer` values now work in `where` clauses, including lookups by unique binary keys. Both `Buffer` and `Uint8Array` values keep the simple read and cursor query paths. ([#68](https://github.com/almeidazs/better-drizzle/pull/68))
-- **Relation ordering.** `orderBy` accepts fields of `one` relations, nested to any depth, and `{ _count: 'asc' | 'desc' }` for `many` and `.through()` relations. Correlated subqueries keep the root row count and query count unchanged, including nested relation reads and `paginate()`. A missing `one` relation sorts as `NULL`; an empty to-many count is `0`. The cache plugin tracks relation and junction dependencies and preserves nested sort priority; Zod and ATA validate relation sorts. See [ordering by relations](/docs/querying/reads#ordering-by-relations). ([#67](https://github.com/almeidazs/better-drizzle/pull/67))
-- **Relation-sort limits.** `cursor()` and the `cursor` read argument reject relation sorts with `INVALID_ARGS`, including on the first page. Only `_count` is supported for to-many sorts, without a filter; sort subqueries do not apply soft-delete filters. Index the relation keys and check [`.explain()`](/docs/querying/explain) for the cost of correlated sorts.
-
-## 0.3.0 - 2026-10-03
+## 0.3.0 - 2026-10-12
 
 For step-by-step migration instructions, see the [upgrading guide](/docs/guides/upgrading#moving-to-drizzle-orm-1x).
 
-`0.3.0` moves better-drizzle to Drizzle ORM 1.x (relational queries v2). It also adds prepared statements, two experimental plugins (`cache` and `ata`), atomic updates, PostgreSQL array and JSONB path support, and stricter types and runtime checks.
+`0.3.0` moves better-drizzle to Drizzle ORM 1.x (relational queries v2). It also adds prepared statements, relation ordering, a UUID plugin, two experimental plugins (`cache` and `ata`), atomic updates, PostgreSQL array and JSONB path support, and stricter types and runtime checks.
 
 Each entry links to the commits that made it. Merged pull requests are linked as `#n`. **Breaking changes** are removed or renamed APIs, new compile errors, and changes the commits mark as breaking. **Behavior changes** compile unchanged but can change what your code sees at runtime.
 
@@ -88,6 +82,8 @@ Each entry links to the commits that made it. Merged pull requests are linked as
 ### Querying
 
 - **`$where()` on every delegate.** It compiles a typed `where`, including logical operators and relation filters, into a Drizzle `SQL` condition for raw `db.select()` queries, joins, and subqueries. See [reusing a filter in raw Drizzle](/docs/querying/filters#reusing-a-filter-in-raw-drizzle). ([`309278a`](https://github.com/almeidazs/better-drizzle/commit/309278a), [#63](https://github.com/almeidazs/better-drizzle/pull/63))
+- **Relation ordering.** `orderBy` accepts fields of `one` relations, nested to any depth, and `{ _count: 'asc' | 'desc' }` for `many` and `.through()` relations. Correlated subqueries keep the root row count and query count unchanged, including nested relation reads and `paginate()`. A missing `one` relation sorts as `NULL`; an empty to-many count is `0`. The cache plugin tracks relation and junction dependencies and preserves nested sort priority; Zod and ATA validate relation sorts. See [ordering by relations](/docs/querying/reads#ordering-by-relations). ([#67](https://github.com/almeidazs/better-drizzle/pull/67))
+- **Relation-sort limits.** `cursor()` and the `cursor` read argument reject relation sorts with `INVALID_ARGS`, including on the first page. Only `_count` is supported for to-many sorts, without a filter; sort subqueries do not apply soft-delete filters. Index the relation keys and check [`.explain()`](/docs/querying/explain) for the cost of correlated sorts. ([#67](https://github.com/almeidazs/better-drizzle/pull/67))
 - **`NULL` ordering.** `orderBy` accepts `{ direction, nulls: 'first' | 'last' }`. PostgreSQL and SQLite use native `NULLS FIRST` / `NULLS LAST`, MySQL emulates it with `IS NULL`, and unsupported dialects fail when the client is created. See [ordering](/docs/querying/reads#ordering-limit-and-offset). ([`b129c9f`](https://github.com/almeidazs/better-drizzle/commit/b129c9f))
 - **PostgreSQL array filters.** Native array columns get a typed `ArrayFilter` with `has`, `hasEvery`, `hasSome`, `hasNone`, `containedBy`, `isEmpty`, `length` (total cardinality), `equals`, and `not`. They compile to `@>`, `&&`, `<@`, and `cardinality()` with bound params, and throw `ARRAY_QUERY_UNSUPPORTED` outside PostgreSQL. See [arrays](/docs/querying/arrays). ([`17b91a7`](https://github.com/almeidazs/better-drizzle/commit/17b91a7), [`f5b829c`](https://github.com/almeidazs/better-drizzle/commit/f5b829c), [`0e5ab13`](https://github.com/almeidazs/better-drizzle/commit/0e5ab13), [#50](https://github.com/almeidazs/better-drizzle/pull/50))
 - **Array element predicates.** `some`, `every`, and `none` take the element's typed scalar filter. Simple predicates use GIN-compatible containment or overlap, lone comparisons use `ANY` / `ALL`, and the rest use `unnest()`. See [arrays](/docs/querying/arrays). ([`598d33f`](https://github.com/almeidazs/better-drizzle/commit/598d33f), [`77bfb7b`](https://github.com/almeidazs/better-drizzle/commit/77bfb7b), [#50](https://github.com/almeidazs/better-drizzle/pull/50))
@@ -150,6 +146,12 @@ New `BetterDrizzleErrorCode` values (see [error codes](/docs/reference/errors#er
 
 ### Plugins
 
+#### UUIDs
+
+- **New `better-drizzle/uuid` plugin.** `uuids()` fills UUIDv7 (default) or UUIDv4 ids on `create`, `createMany`, `upsert`, and `upsertMany` when they are `undefined`, and the id becomes optional in create input types. Ids are insert-only on `upsertMany` conflicts. `uuidv7()` and `uuidv4()` are exported. See [UUIDs](/docs/plugins/uuid). ([#71](https://github.com/almeidazs/better-drizzle/pull/71))
+- **`buuid()` columns.** `better-drizzle/uuid/mysql` (`binary(16)`) and `better-drizzle/uuid/sqlite` (`blob`) store UUIDs as 16 bytes, typed as `string`. Zod and ATA validate them as UUID strings. ([#71](https://github.com/almeidazs/better-drizzle/pull/71))
+- **Generated columns for plugin authors.** Plugins declare `generated: { column, models?, accepts? }`; the column becomes optional in create inputs, is listed in `model.generated`, and is optional in Zod and ATA create schemas in any plugin order. See [generated columns](/docs/plugins/writing-plugins#generated-columns). ([#71](https://github.com/almeidazs/better-drizzle/pull/71))
+
 #### Cache (experimental)
 
 - **New `better-drizzle/cache` plugin and `better-drizzle/cache/redis` store.** Opt-in read caching with versioned keys. Every read accepts `cache` (`true`, a custom key, or `{ ttl, negativeTtl, tags, key, vary, refresh, afterHooks }`), and models can opt in through `models`. Observed writes invalidate their dependencies (rows, entities, model epochs, and declared foreign-key relations). Inside a transaction, invalidation waits for the commit and is dropped on rollback. See [cache](/docs/plugins/cache). ([`d39942f`](https://github.com/almeidazs/better-drizzle/commit/d39942f), [`dba31b1`](https://github.com/almeidazs/better-drizzle/commit/dba31b1), [#60](https://github.com/almeidazs/better-drizzle/pull/60))
@@ -208,6 +210,8 @@ Published overhead figures are on the [benchmarks](/docs/performance/benchmarks)
 
 ## Fixes
 
+- **Binary filters.** Bare `Buffer` values now work in `where` clauses, including lookups by unique binary keys. Both `Buffer` and `Uint8Array` values keep the simple read and cursor query paths. ([#68](https://github.com/almeidazs/better-drizzle/pull/68))
+- **Relation keys set to `undefined` in writes.** `create`, `update`, and `upsert` threw `INVALID_ARGS` when a relation key was present but `undefined`, such as optional form data spread into `data`. They are now skipped like `undefined` columns; `null` still throws. ([#69](https://github.com/almeidazs/better-drizzle/pull/69))
 - **`version` was stale.** Every entrypoint reported `0.1.1`. All entrypoints now report the package version. ([`058dd28`](https://github.com/almeidazs/better-drizzle/commit/058dd28))
 - **JSONB `in`, `notIn`, and `mode`.** JSONB path filters accepted them in the types, but the compiler ignored them, so `in` matched every row. Lists now compile to a type-guarded `IN` per JSON type, and `mode: 'insensitive'` uses `ILIKE`. See [JSONB](/docs/querying/jsonb#lists-and-case-insensitive-matching). ([`eb0a633`](https://github.com/almeidazs/better-drizzle/commit/eb0a633))
 - **MySQL single-row writes.** `update()` and `delete()` with a non-unique `where` read and wrote in separate statements, so a concurrent write could make the returned row differ from the changed one. They now lock the row first. ([`7e81d12`](https://github.com/almeidazs/better-drizzle/commit/7e81d12))
@@ -233,4 +237,4 @@ Published overhead figures are on the [benchmarks](/docs/performance/benchmarks)
 
 ## Contributors
 
-Thanks to [@mertcanaltin](https://github.com/mertcanaltin) ([#51](https://github.com/almeidazs/better-drizzle/pull/51)), [@flaxodotdev](https://github.com/flaxodotdev) ([#54](https://github.com/almeidazs/better-drizzle/pull/54)), and [@joaotonaco](https://github.com/joaotonaco) ([#63](https://github.com/almeidazs/better-drizzle/pull/63)).
+Thanks to [@mertcanaltin](https://github.com/mertcanaltin) ([#51](https://github.com/almeidazs/better-drizzle/pull/51)), [@flaxodotdev](https://github.com/flaxodotdev) ([#54](https://github.com/almeidazs/better-drizzle/pull/54)), [@joaotonaco](https://github.com/joaotonaco) ([#63](https://github.com/almeidazs/better-drizzle/pull/63), [#67](https://github.com/almeidazs/better-drizzle/pull/67), [#69](https://github.com/almeidazs/better-drizzle/pull/69)), and [@willzys](https://github.com/willzys) ([#68](https://github.com/almeidazs/better-drizzle/pull/68)).

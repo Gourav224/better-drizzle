@@ -136,7 +136,7 @@
     - `select` and `include` are mutually exclusive at every level
     - `.explain()` reports non-root relation stages under `deferredRelations`
     - `include._count.select` projects relation totals as correlated subqueries in the SQL for the current query level; selectors accept `true` or `{ where }`, support one/many/many-to-many relations, and do not add count round-trips
-- **Relation ordering (planned for 0.4.0; root manifest remains 0.3.0)**:
+- **Relation ordering**:
     - `orderBy` takes relation keys nested like relation `where` filters: a `one` relation takes the related table's `orderBy` field map (any depth, `{ direction, nulls }` allowed); a `many`/`.through()` relation takes exactly `{ _count: SortOrder }`. No dotted-path form, since dotted keys mean JSONB paths
     - each relation key compiles to a correlated scalar subquery in `ORDER BY` (one: related column with `limit 1`, aliased `__better_order_<depth>` per level; to-many: the shared `_count` builder), so FROM, row cardinality, the joined include path, `row_number()` windows, and `paginate()` counts are unchanged; scalar keys stay on the first lookup so scalar-only ordering adds no allocations
     - an aggregate `_count` on a `one` relation, a field map on a to-many relation, a non-object relation value, and a relation key with the `cursor` arg or `cursor()` (first page too) throw `INVALID_ARGS`; an actual scalar column named `_count` on a `one` target remains sortable, including with Zod and ATA; unknown keys are still skipped; unsupported relations reuse the relation-support error; sort subqueries ignore soft-delete

@@ -83,7 +83,6 @@ await client.users.findUnique({
 ```ts
 orderBy: { createdAt: 'desc' }
 orderBy: [{ lastSeenAt: { direction: 'desc', nulls: 'last' } }, { id: 'asc' }]
-// Relation sorts require 0.4.0 (unreleased); 0.3.0 supports scalar ordering only.
 orderBy: [{ author: { name: 'asc' } }, { id: 'asc' }] // one relation: related fields, any depth
 orderBy: { posts: { _count: 'desc' } } // many or .through() relation: row count only
 ```

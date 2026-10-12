@@ -169,8 +169,6 @@ const page = await db
 
 ### Ordering by relations
 
-Available in **0.4.0 (unreleased)**; published `0.3.0` supports scalar ordering only.
-
 `orderBy` also takes relation keys, nested the same way as [relation filters](/docs/querying/relations#filtering-by-related-rows):
 
 - A `one` relation takes a field map of the related table. It can nest to any depth, and its fields accept `'asc'` / `'desc'` or `{ direction, nulls }`.
