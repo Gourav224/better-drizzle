@@ -264,6 +264,8 @@ const buildRelations = (
  * @param options - Client options including schema, plugins, and hooks.
  * @returns A fully-initialised runtime context.
  */
+const NO_SCOPES: TableRuntime['scopes'] = Object.freeze([]);
+
 export const createRuntimeContext = <
 	Schema extends AnySchema,
 	Meta = BetterMeta,
@@ -317,6 +319,7 @@ export const createRuntimeContext = <
 			primaryKeyFields,
 			relations: Object.create(null) as TableRuntime['relations'],
 			relationNames: new Set(),
+			scopes: NO_SCOPES,
 			table,
 			tableConfig,
 			uniqueKeys,
@@ -384,6 +387,8 @@ export const createRuntimeContext = <
 		models,
 		options,
 		scopedMeta: undefined,
+		scopes: undefined,
+		scopesDisabled: false,
 		plugins: {
 			byKind: createPluginBuckets(),
 			meta: [],
@@ -407,6 +412,7 @@ export const createDerivedRuntimeContext = <
 	db: unknown,
 	transaction: TransactionRuntime | null,
 	scopedMeta = context.scopedMeta,
+	scopes = context.scopes,
 ): RuntimeContext<Schema, Meta, Plugins> => ({
 	client: null,
 	clientExtensions: context.clientExtensions,
@@ -418,6 +424,8 @@ export const createDerivedRuntimeContext = <
 	models: context.models,
 	options: context.options,
 	scopedMeta,
+	scopes,
+	scopesDisabled: false,
 	plugins: context.plugins,
 	fullSchema: context.fullSchema,
 	relational: context.relational,
@@ -478,14 +486,27 @@ export const getArgsMeta = <Meta>(args: unknown): Meta | undefined =>
 export const mergeMeta = <Meta>(
 	scopedMeta: Meta | undefined,
 	operationMeta: Meta | undefined,
+	allowBypassOverride = false,
 ): Meta | undefined => {
 	if (operationMeta === undefined) return scopedMeta;
 	if (scopedMeta === undefined) return operationMeta;
 
-	return {
+	const merged = {
 		...(scopedMeta as Record<string, unknown>),
 		...(operationMeta as Record<string, unknown>),
-	} as Meta;
+	};
+	// A bypass reason is an audit fact set by a scope transition. A caller's
+	// operation or context metadata must not replace it.
+	if (
+		!allowBypassOverride &&
+		scopedMeta !== null &&
+		typeof scopedMeta === 'object' &&
+		Object.hasOwn(scopedMeta, 'tenantBypass')
+	)
+		merged.tenantBypass = (
+			scopedMeta as Record<string, unknown>
+		).tenantBypass;
+	return merged as Meta;
 };
 
 export function getMeta<Meta>(args: unknown): Meta | undefined;

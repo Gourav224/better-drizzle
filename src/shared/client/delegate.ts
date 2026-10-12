@@ -1,3 +1,5 @@
+import { and } from 'drizzle-orm';
+
 import type {
 	AfterCreateHookContext,
 	AfterDeleteHookContext,
@@ -70,6 +72,13 @@ import {
 } from './plugins';
 import { type PreparedReadKind, fillParams, prepareRead } from './prepared';
 import { hasRelationWrites } from './relations';
+import {
+	needsSession,
+	runSessionSql,
+	scopePredicate,
+	sessionStatements,
+	withoutScopes,
+} from './scopes';
 
 const EMPTY_VALUES = Object.freeze({}) as Record<string, unknown>;
 
@@ -135,7 +144,13 @@ export const createModelDelegate = <
 			callback: (tx: Record<string, unknown>) => Promise<Result>,
 		) => Promise<Result>;
 		return transaction(async (tx) => {
-			const repository = tx[name] as Record<string, unknown>;
+			let repository = tx[name] as Record<string, unknown>;
+			// A `$withoutPlugins()` delegate dropped its scopes; the transaction
+			// client inherits them from the parent client, so drop them again.
+			if (context.scopesDisabled)
+				repository = (
+					repository.$withoutPlugins as () => Record<string, unknown>
+				)();
 			const scopedRepository = (
 				repository.$withState as (
 					value: Record<string, unknown>,
@@ -156,18 +171,24 @@ export const createModelDelegate = <
 				mergePluginState(state, nextState),
 			);
 		},
-		$withoutPlugins() {
+		$withoutPlugins(options?: { keepScopes?: boolean }) {
 			return createModelDelegate(
-				context,
+				options?.keepScopes || context.scopes === undefined
+					? context
+					: withoutScopes(context),
 				tableName,
 				mergePluginState(state, skipPluginsState()),
 			);
 		},
 		$where(where?: CompilableWhere) {
-			return compileWhereInput(
+			const predicate = compileWhereInput(
 				{ ...context, runtime, tableName: name },
 				where,
 			);
+			const scope = scopePredicate(context, runtime);
+			return scope && predicate
+				? and(predicate, scope)
+				: (scope ?? predicate);
 		},
 	} as BetterDrizzleModelDelegate<
 		Schema,
@@ -240,6 +261,7 @@ export const createModelDelegate = <
 				.byKind[kind].hasIntercepts
 				? { annotations: undefined, skipAfterHooks: false }
 				: undefined;
+			const query = () => runSessionSql(context, execute);
 			const result = await executeOperation({
 				action: spec.action,
 				args: operationArgs,
@@ -263,11 +285,11 @@ export const createModelDelegate = <
 								operationArgs as never,
 								state,
 								delegate,
-								execute,
+								query,
 								interception,
 								params,
 							)
-					: execute,
+					: query,
 				runtime,
 				tableName: name,
 			});
@@ -299,7 +321,54 @@ export const createModelDelegate = <
 	let deleteSpec:
 		| Spec<DeleteOperationArgs, Record<string, unknown> | null>
 		| undefined;
+	// Scope session statements (RLS settings) must run in the transaction the
+	// operation runs in: standalone operations open one, and transactions
+	// run them once per scope state.
 	const runOperation = <Args, Result>(
+		spec: Spec<Args, Result>,
+		args: Args,
+	): Promise<Result> => {
+		if (
+			!context.plugins.sessions ||
+			(context.scopes === undefined && !context.transaction)
+		)
+			return runScoped(spec, args);
+		assertTransactionNotAborted();
+		if (context.transaction) return runScoped(spec, args);
+		if (!sessionStatements(context)) return runScoped(spec, args);
+
+		return inSession((repository) =>
+			(repository[spec.kind] as (value: Args) => unknown)(args),
+		);
+	};
+
+	// Replays a standalone call on this delegate inside a transaction, which
+	// runs the scope session statements first.
+	const inSession = <Result>(
+		run: (repository: Record<string, unknown>) => unknown,
+	) =>
+		(
+			(context.client as Record<string, unknown>).transaction as (
+				callback: (tx: Record<string, unknown>) => unknown,
+			) => Promise<Result>
+		)((tx) =>
+			run(
+				(
+					(tx[name] as Record<string, unknown>).$withState as (
+						value: Record<string, unknown>,
+					) => Record<string, unknown>
+				)(state),
+			),
+		);
+
+	type Replayable = Record<string, unknown> & {
+		explain: (...args: unknown[]) => unknown;
+		prepare: (
+			name?: string,
+		) => Record<'execute' | 'explain', (...args: unknown[]) => unknown>;
+	};
+
+	const runScoped = <Args, Result>(
 		spec: Spec<Args, Result>,
 		args: Args,
 	): Promise<Result> => {
@@ -319,7 +388,8 @@ export const createModelDelegate = <
 					? () => beforePayload(args)
 					: undefined,
 				context,
-				operation: () => spec.operation(args),
+				operation: () =>
+					runSessionSql(context, () => spec.operation(args)),
 				runtime,
 				tableName: name,
 			});
@@ -407,6 +477,7 @@ export const createModelDelegate = <
 					tableName,
 					resolvedArgs.where as never,
 					resolvedArgs.cursor as never,
+					resolvedArgs,
 				);
 		if (kind === 'cursor')
 			return (resolvedArgs) =>
@@ -535,7 +606,7 @@ export const createModelDelegate = <
 		if (pending) pending.catch(() => undefined);
 		else plan = build(args as Record<string, unknown>);
 
-		const run = (
+		const runReady = (
 			current: Plan,
 			values: Record<string, unknown> | undefined,
 			options: { meta?: unknown } | undefined,
@@ -546,7 +617,7 @@ export const createModelDelegate = <
 				return Promise.reject(error);
 			}
 			const input = values ?? EMPTY_VALUES;
-			if (bare) return current.run(input);
+			if (bare) return runSessionSql(context, () => current.run(input));
 			const operationArgs =
 				options?.meta === undefined
 					? current.args
@@ -557,7 +628,8 @@ export const createModelDelegate = <
 								...(options.meta as object),
 							},
 						};
-			const execute = () => current.run(input);
+			const execute = () =>
+				runSessionSql(context, () => current.run(input));
 			if (!plugins)
 				return executeOperation({
 					action: kind,
@@ -589,15 +661,34 @@ export const createModelDelegate = <
 			);
 		}
 
+		// RLS settings must be set in the transaction the statement runs in,
+		// so a standalone prepared read replays itself inside one.
+		const replay = needsSession(context)
+			? (method: 'execute' | 'explain', input: unknown[]) =>
+					inSession((repository) =>
+						(
+							(
+								repository[kind] as (
+									value: unknown,
+								) => Replayable
+							)(args).prepare(statementName)[method] as (
+								...values: unknown[]
+							) => unknown
+						)(...input),
+					)
+			: undefined;
+
 		const execute = (
 			values?: Record<string, unknown>,
 			options?: { meta?: unknown },
 		) => {
-			const result = plan
-				? run(plan, values, options)
-				: (pending as Promise<Plan>).then((current) =>
-						run(current, values, options),
-					);
+			const result = replay
+				? replay('execute', [values, options])
+				: plan
+					? runReady(plan, values, options)
+					: (pending as Promise<Plan>).then((current) =>
+							runReady(current, values, options),
+						);
 			if (single) (result as { throw?: unknown }).throw = throwMissing;
 			return result;
 		};
@@ -608,14 +699,17 @@ export const createModelDelegate = <
 				values?: Record<string, unknown>,
 				options?: Parameters<typeof explainOperation>[4],
 			) {
+				if (replay) return replay('explain', [values, options]);
 				const current = plan ?? (await (pending as Promise<Plan>));
 				current.check(values ?? EMPTY_VALUES);
-				return explainOperation(
-					context,
-					tableName,
-					kind,
-					fillParams(current.args, values ?? EMPTY_VALUES),
-					options,
+				return runSessionSql(context, () =>
+					explainOperation(
+						context,
+						tableName,
+						kind,
+						fillParams(current.args, values ?? EMPTY_VALUES),
+						options,
+					),
 				);
 			},
 			name: statementName,
@@ -630,13 +724,29 @@ export const createModelDelegate = <
 		attachExplain(
 			operationThunk,
 			async (options) =>
-				explainOperation(
-					context,
-					tableName,
-					operation,
-					await resolveExplainArgs(operation, args),
-					options,
-				),
+				needsSession(context)
+					? inSession((repository) =>
+							(
+								repository[operation] as (
+									value: Args,
+								) => Replayable
+							)(args).explain(options),
+						)
+					: (async () => {
+							const resolved = await resolveExplainArgs(
+								operation,
+								args,
+							);
+							return runSessionSql(context, () =>
+								explainOperation(
+									context,
+									tableName,
+									operation,
+									resolved,
+									options,
+								),
+							);
+						})(),
 			prepare,
 			read(operation),
 			args,

@@ -118,6 +118,14 @@ export enum BetterDrizzleErrorCode {
 	ResultNotFound = 'RESULT_NOT_FOUND',
 	/** Internal: the table runtime metadata was not found. */
 	TableRuntimeNotFound = 'TABLE_RUNTIME_NOT_FOUND',
+	/** `$tenant()` tried to change a tenant column that is already set. */
+	TenantAlreadyScoped = 'TENANT_ALREADY_SCOPED',
+	/** A write set a tenant column to a value other than the active tenant. */
+	TenantMismatch = 'TENANT_MISMATCH',
+	/** Raw SQL ran on a tenant-scoped client without the per-call opt-in. */
+	TenantRawDenied = 'TENANT_RAW_DENIED',
+	/** An operation on a tenant-scoped model ran without the required tenant values. */
+	TenantRequired = 'TENANT_REQUIRED',
 	/** A transaction was aborted via `AbortSignal` or timeout. */
 	TransactionAborted = 'TRANSACTION_ABORTED',
 	/** Internal: transaction lifecycle state is missing. */
@@ -206,7 +214,12 @@ const getDefaultStatus = (code: BetterDrizzleErrorCode) => {
 		case BetterDrizzleErrorCode.ArrayMutationUnsupported:
 		case BetterDrizzleErrorCode.TransactionUnsupportedOption:
 		case BetterDrizzleErrorCode.UniqueWhereRequired:
+		case BetterDrizzleErrorCode.TenantAlreadyScoped:
 			return 400;
+		case BetterDrizzleErrorCode.TenantMismatch:
+		case BetterDrizzleErrorCode.TenantRawDenied:
+		case BetterDrizzleErrorCode.TenantRequired:
+			return 403;
 		case BetterDrizzleErrorCode.LockTimeout:
 		case BetterDrizzleErrorCode.TransactionRollback:
 			return 409;

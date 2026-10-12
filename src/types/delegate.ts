@@ -18,6 +18,7 @@ import type {
 import type {
 	AnyPlugin,
 	ClientExtensionsOf,
+	HiddenModelsOf,
 	GeneratedColumnsOf,
 	ModelExtensionsOf,
 	OperationArgsWithPlugins,
@@ -1062,6 +1063,78 @@ export type ExtendedClient<Client, Extension> = Omit<
 	};
 
 /**
+ * A client without the `Hidden` table keys; `Repository` replaces its
+ * `repository()` accessor. `$withContext()`, `extends()`, and transaction
+ * clients derived from it hide the same keys.
+ */
+export type StrictClient<Client, Hidden extends PropertyKey, Repository> = Omit<
+	Client,
+	Hidden | '$withContext' | 'extends' | 'repository' | 'transaction'
+> &
+	Repository & {
+		extends: BetterDrizzleExtendsMethod<
+			StrictClient<Client, Hidden, Repository>
+		>;
+		$withContext(
+			meta: ScopedMetaOf<Client>,
+		): StrictClient<Client, Hidden, Repository>;
+		transaction<T>(
+			callback: (
+				tx: StrictClient<
+					TransactionClientOf<Client>,
+					Hidden,
+					Repository
+				>,
+			) => Promise<T> | T,
+			options?: TransactionOptionsOf<Client>,
+		): Promise<T>;
+	};
+
+/** `repository()` accepting only the table keys and database names not hidden. */
+type StrictRepository<
+	Schema extends AnySchema,
+	Meta,
+	Plugins extends readonly AnyPlugin[],
+	Hidden extends TableKey<Schema>,
+> = {
+	repository<
+		Name extends Exclude<
+			RepositoryKey<Schema>,
+			Hidden | TableFor<Schema, Hidden>['_']['name']
+		>,
+	>(
+		name: Name,
+	): BetterDrizzleModelDelegate<
+		Schema,
+		RepositorySourceKey<Schema, Name>,
+		Meta,
+		Plugins
+	>;
+};
+
+/**
+ * The client type returned by {@link better}: {@link BetterDrizzleClient}
+ * without the models plugins hide (the tenant plugin's `strict` option),
+ * through properties and `repository()`.
+ */
+export type BetterRootClient<
+	Schema extends AnySchema,
+	Meta = import('./query').BetterMeta,
+	Plugins extends readonly AnyPlugin[] = [],
+> = [HiddenModelsOf<Plugins, Schema>] extends [never]
+	? BetterDrizzleClient<Schema, Meta, Plugins>
+	: StrictClient<
+			BetterDrizzleClient<Schema, Meta, Plugins>,
+			HiddenModelsOf<Plugins, Schema>,
+			StrictRepository<
+				Schema,
+				Meta,
+				Plugins,
+				HiddenModelsOf<Plugins, Schema>
+			>
+		>;
+
+/**
  * The fully-typed client returned by {@link better}. Provides a delegate for
  * every table in the schema plus a unified `repository()` accessor.
  *
@@ -1096,7 +1169,7 @@ export type BetterDrizzleClient<
 	Meta = import('./query').BetterMeta,
 	Plugins extends readonly AnyPlugin[] = [],
 > = BetterDrizzleClientByTableWithPlugins<Schema, Meta, Plugins> &
-	ClientExtensionsOf<Plugins> & {
+	ClientExtensionsOf<Plugins, Schema, Meta> & {
 		/**
 		 * Extends the current client with custom properties and helper methods.
 		 *
@@ -1456,8 +1529,10 @@ export type BetterDrizzleModelDelegate<
 	 * Returns a cloned delegate that bypasses plugin hooks and transforms.
 	 *
 	 * Useful when you need to perform a raw operation without triggering
-	 * plugin logic (e.g. soft-delete filters).
+	 * plugin logic (e.g. soft-delete filters). Model scopes declared by
+	 * plugins (for example a tenant) are dropped too unless `keepScopes` is set.
 	 *
+	 * @param options - `keepScopes: true` keeps the client's model scopes.
 	 * @returns A new delegate with all plugin hooks and transforms disabled.
 	 *
 	 * @example
@@ -1466,13 +1541,9 @@ export type BetterDrizzleModelDelegate<
 	 * const allUsers = await db.user.$withoutPlugins().findMany();
 	 * ```
 	 */
-	$withoutPlugins(): BetterDrizzleModelDelegate<
-		Schema,
-		Name,
-		Meta,
-		Plugins,
-		ModelExtension
-	>;
+	$withoutPlugins(options?: {
+		keepScopes?: boolean;
+	}): BetterDrizzleModelDelegate<Schema, Name, Meta, Plugins, ModelExtension>;
 	/**
 	 * Compiles a typed `where` into a Drizzle `SQL` condition so it can be
 	 * reused in raw Drizzle queries, joins, and subqueries.

@@ -56,6 +56,11 @@ const SINGLE_KINDS = new Set(['findFirst', 'findOne', 'findUnique']);
 // Keys that never change a result: the cache setting itself and hook meta.
 const IGNORED_ARGS = new Set(['cache', 'meta']);
 
+const hasKeys = (value: object) => {
+	for (const _ in value) return true;
+	return false;
+};
+
 export const cache = (options: CacheOptions) => {
 	const { store } = options;
 	const preparedQueries = new WeakMap<object, string>();
@@ -154,18 +159,26 @@ export const cache = (options: CacheOptions) => {
 			kind: string;
 			meta: unknown;
 			params?: Readonly<MutableRecord>;
+			scopes?: Readonly<MutableRecord>;
 			state: Readonly<MutableRecord>;
 			table: string;
 			transactionContext: MutableRecord | undefined;
 		},
 		settings: ReadSettings,
 	) => {
-		if (settings.key !== undefined) return customKey(settings.key);
 		const { params } = context;
 		// A prepared statement passes the same args on every execution, so
 		// their canonical text is computed once and joined with the values.
 		let query = params ? preparedQueries.get(context.args) : undefined;
 		try {
+			const scopes =
+				context.scopes && hasKeys(context.scopes)
+					? context.scopes
+					: undefined;
+			if (settings.key !== undefined)
+				return scopes
+					? `${customKey(settings.key)}:s:${hash(canonicalizeRead([scopes]))}`
+					: customKey(settings.key);
 			let args: MutableRecord | null = null;
 			if (query === undefined) {
 				args = Object.create(null) as MutableRecord;
@@ -191,9 +204,14 @@ export const cache = (options: CacheOptions) => {
 					transactionContext: context.transactionContext,
 				}),
 			];
-			if (query === undefined)
+			// Scoped clients (a tenant) get their own entries; an empty state
+			// keeps unscoped keys unchanged.
+			if (query === undefined) {
+				if (scopes) identity.push(scopes);
 				return `${prefix}q:${hash(canonicalizeRead(identity))}`;
+			}
 			identity.push(params);
+			if (scopes) identity.push(scopes);
 			return `${prefix}q:${hash(`${query}\n${canonicalizeRead(identity)}`)}`;
 		} catch (error) {
 			if (error instanceof UncacheableValueError) return;

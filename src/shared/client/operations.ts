@@ -71,6 +71,16 @@ import {
 	splitRelationData,
 	validateProjection,
 } from './relations';
+import {
+	assertImmutable,
+	conflictMismatch,
+	isImmutableColumn,
+	scopeConflictWhere,
+	scopePredicate,
+	stampInsert,
+	upsertContext,
+	writeContext,
+} from './scopes';
 
 type ResolvedSkipDuplicates = {
 	enabled: boolean;
@@ -690,7 +700,9 @@ export const compileUpdateMutations = (
 	dialect: string,
 	operation: string,
 	data: Record<string, unknown>,
+	context?: RuntimeContext<AnySchema, unknown>,
 ) => {
+	if (context) assertImmutable(context, runtime, data);
 	let result: Record<string, unknown> | undefined;
 
 	for (const key in data) {
@@ -922,12 +934,15 @@ const validateUpsertManyUpdateObject = (
 };
 
 const buildUpsertManySet = <Schema extends AnySchema, Meta>(
+	context: RuntimeContext<Schema, Meta>,
 	runtime: TableRuntime,
 	args: UpsertManyArgs<Schema, BetterTableKey<Schema>, Meta>,
 	targetColumns: AnyColumn[],
-	dialect: string,
 ) => {
+	const { dialect } = context;
 	const targetNames = new Set(targetColumns.map((column) => column.name));
+	// Immutable scope columns never join generated update sets.
+	const scoped = context.scopes !== undefined && runtime.scopes.length > 0;
 
 	if (args.update === 'all') {
 		const result = Object.create(null) as Record<string, unknown>;
@@ -935,6 +950,7 @@ const buildUpsertManySet = <Schema extends AnySchema, Meta>(
 		for (const key in runtime.columns) {
 			const column = runtime.columns[key];
 			if (!column || targetNames.has(column.name)) continue;
+			if (scoped && isImmutableColumn(context, runtime, key)) continue;
 
 			result[key] = getExcludedReference(column, dialect);
 		}
@@ -955,6 +971,7 @@ const buildUpsertManySet = <Schema extends AnySchema, Meta>(
 					operation: 'upsertMany',
 					table: runtime.dbName,
 				});
+			if (scoped && isImmutableColumn(context, runtime, key)) continue;
 
 			result[key] = getExcludedReference(column, dialect);
 		}
@@ -1109,6 +1126,7 @@ const buildUpdateEachSet = <Schema extends AnySchema, Meta>(
 				table: runtime.dbName,
 			});
 
+		const immutable = isImmutableColumn(context, runtime, key);
 		const branches = new Array<SQL>(args.data.length);
 		for (let index = 0; index < args.data.length; index += 1) {
 			const row = args.data[index] as Record<string, unknown>;
@@ -1121,6 +1139,8 @@ const buildUpdateEachSet = <Schema extends AnySchema, Meta>(
 					operation: 'updateEach',
 					table: runtime.dbName,
 				});
+			if (immutable)
+				assertImmutable(context, runtime, { [key]: nextValue });
 
 			const arrayMutation =
 				isPgArrayColumn(column) &&
@@ -1293,6 +1313,21 @@ const applyInsertOnConflict = <Schema extends AnySchema, Meta>(
 const hasProjection = (
 	args: { include?: unknown; select?: unknown } | undefined,
 ) => Boolean(args?.select || args?.include);
+
+// Stamps scope columns on insert rows; returns `rows` when nothing changes.
+const stampRows = <Schema extends AnySchema, Meta>(
+	context: RuntimeContext<Schema, Meta>,
+	runtime: TableRuntime,
+	rows: readonly Record<string, unknown>[],
+) => {
+	let result: Record<string, unknown>[] | undefined;
+	for (let index = 0; index < rows.length; index++) {
+		const row = rows[index] as Record<string, unknown>;
+		const stamped = stampInsert(context, runtime, row);
+		if (stamped !== row) (result ??= rows.slice())[index] = stamped;
+	}
+	return result ?? rows;
+};
 
 const insertsWhere = (
 	fields: readonly string[],
@@ -1638,13 +1673,62 @@ const getPredicate = <Schema extends AnySchema, Meta>(
 		where as CompilableWhere | undefined,
 	);
 
+/** Read predicate: the compiled `where` ANDed with the model scope. */
+const getReadPredicate = <Schema extends AnySchema, Meta>(
+	context: RuntimeContext<Schema, Meta>,
+	runtime: TableRuntime,
+	tableName: BetterTableKey<Schema>,
+	where: unknown,
+	rootArgs?: object,
+) => {
+	const predicate = getPredicate(context, runtime, tableName, where);
+	if (context.scopes === undefined) return predicate;
+	const scope = scopePredicate(
+		context,
+		runtime,
+		undefined,
+		rootArgs as Record<string, unknown> | undefined,
+		context.writeScope === runtime,
+	);
+	return scope && predicate ? and(predicate, scope) : (scope ?? predicate);
+};
+
+/**
+ * Write predicate: an empty `where` stays a no-op (`undefined`); otherwise
+ * the compiled `where` is ANDed with the strict model scope.
+ */
+const getWritePredicate = <Schema extends AnySchema, Meta>(
+	context: RuntimeContext<Schema, Meta>,
+	runtime: TableRuntime,
+	tableName: BetterTableKey<Schema>,
+	where: unknown,
+	rootArgs?: object,
+) => {
+	const predicate = getPredicate(context, runtime, tableName, where);
+	if (!predicate || context.scopes === undefined) return predicate;
+	const scope = scopePredicate(
+		context,
+		runtime,
+		undefined,
+		rootArgs as Record<string, unknown> | undefined,
+		true,
+	);
+	return scope ? and(predicate, scope) : predicate;
+};
+
 const buildReadState = <Schema extends AnySchema, Meta>(
 	context: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args?: QueryArgs<Schema, BetterTableKey<Schema>, Meta>,
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
-	const where = getPredicate(context, runtime, tableName, args?.where);
+	const where = getReadPredicate(
+		context,
+		runtime,
+		tableName,
+		args?.where,
+		args,
+	);
 	const whereContext = {
 		...context,
 		runtime,
@@ -1957,7 +2041,7 @@ const getJoinedRelationWhere = (
 	};
 };
 
-const buildJoinedOneRelationQuery = <Schema extends AnySchema, Meta>(
+export const buildJoinedOneRelationQuery = <Schema extends AnySchema, Meta>(
 	context: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args?: QueryArgs<Schema, BetterTableKey<Schema>, Meta>,
@@ -1990,11 +2074,12 @@ const buildJoinedOneRelationQuery = <Schema extends AnySchema, Meta>(
 		joinConditions.push(eq(sourceField, referenceField));
 	}
 
-	const baseWhere = getPredicate(
+	const baseWhere = getReadPredicate(
 		context,
 		runtime,
 		tableName,
 		relationWhere.baseWhere,
+		args,
 	);
 	const relationPredicate = compileWhereInput(
 		{
@@ -2024,7 +2109,12 @@ const buildJoinedOneRelationQuery = <Schema extends AnySchema, Meta>(
 			joinedRelation.relationRuntime.table,
 			and(...joinConditions),
 		);
-	const where = and(baseWhere, relationPredicate, cursorWhere);
+	const where = and(
+		baseWhere,
+		relationPredicate,
+		scopePredicate(context, joinedRelation.relationRuntime),
+		cursorWhere,
+	);
 
 	if (where) query = query.where(where);
 	if (orderBy?.length) query = query.orderBy(...orderBy);
@@ -2256,7 +2346,13 @@ export const buildExistsQuery = <Schema extends AnySchema, Meta>(
 	},
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
-	const predicate = getPredicate(context, runtime, tableName, args?.where);
+	const predicate = getReadPredicate(
+		context,
+		runtime,
+		tableName,
+		args?.where,
+		args,
+	);
 	const cursorPredicate = compileCursorWhere(
 		{
 			...context,
@@ -2356,18 +2452,23 @@ export const createRecord = async <Schema extends AnySchema, Meta>(
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
 	if (hasProjection(args)) validateProjection(context, runtime, args);
-	const relational = hasRelationWrites(runtime, args.data);
+	const data =
+		context.scopes === undefined
+			? (args.data as Record<string, unknown>)
+			: stampInsert(
+					context,
+					runtime,
+					args.data as Record<string, unknown>,
+				);
+	const relational = hasRelationWrites(runtime, data);
 	const prepared = relational
-		? await prepareRelationWrite(
-				context,
-				runtime,
-				args.data as Record<string, unknown>,
-				true,
-			)
+		? await prepareRelationWrite(context, runtime, data, true)
 		: undefined;
 	const writeArgs = prepared
 		? ({ ...args, data: prepared.scalar } as typeof args)
-		: args;
+		: data === args.data
+			? args
+			: ({ ...args, data } as typeof args);
 	const { builder, skipDuplicates } = applyInsertOnConflict(
 		context,
 		runtime,
@@ -2431,13 +2532,21 @@ export const createManyRecords = async <Schema extends AnySchema, Meta>(
 	tableName: BetterTableKey<Schema>,
 	args: CreateManyArgs<Schema, BetterTableKey<Schema>, Meta>,
 ): Promise<BatchResult<Record<string, unknown>>> => {
+	const runtime = getTableRuntime(context, tableName as string);
+	if (context.scopes !== undefined) {
+		const data = stampRows(
+			context,
+			runtime,
+			args.data as readonly Record<string, unknown>[],
+		);
+		if (data !== args.data) args = { ...args, data } as typeof args;
+	}
 	const batchSize = getBatchSize(args.batchSize, 'createMany');
 	if (batchSize && args.data.length > batchSize)
 		return runBatches(args, batchSize, (chunk) =>
 			createManyRecords(context, tableName, chunk),
 		);
 
-	const runtime = getTableRuntime(context, tableName as string);
 	if (hasProjection(args)) validateProjection(context, runtime, args);
 	const { builder, skipDuplicates } = applyInsertOnConflict(
 		context,
@@ -2473,17 +2582,13 @@ const upsertManyChunk = async <Schema extends AnySchema, Meta>(
 		runtime,
 		args.select as Record<string, unknown> | undefined,
 	);
-	const update = buildUpsertManySet(
-		runtime,
-		args,
-		targetColumns,
-		context.dialect,
-	);
+	const update = buildUpsertManySet(context, runtime, args, targetColumns);
 	const set = compileUpdateMutations(
 		runtime,
 		context.dialect,
 		'upsertMany',
 		update,
+		context as RuntimeContext<AnySchema, unknown>,
 	);
 	if (getCompiledUpdateSet(update)) compiledUpdateSets.set(compiledArgs, set);
 
@@ -2513,6 +2618,17 @@ const upsertManyChunk = async <Schema extends AnySchema, Meta>(
 			targetColumns,
 			args.data as readonly Record<string, unknown>[],
 		);
+		// ON DUPLICATE KEY UPDATE has no WHERE: a row outside the scope keeps
+		// every value through `IF(scope, new, current)`.
+		const scope = scopeConflictWhere(context, runtime);
+		if (scope)
+			for (const key in set) {
+				const column = runtime.columns[key] as AnyColumn;
+				const value = set[key];
+				set[key] = sql`if(${scope}, ${
+					isSQLWrapper(value) ? value : sql.param(value, column)
+				}, ${column})`;
+			}
 		// MySQL reports 1 per insert and 2 per update, so count the rows sent.
 		await builder.onDuplicateKeyUpdate({ set });
 		return { count: args.data.length };
@@ -2525,12 +2641,14 @@ const upsertManyChunk = async <Schema extends AnySchema, Meta>(
 			table: runtime.dbName,
 		});
 
+	const where =
+		args.where === undefined
+			? undefined
+			: getPredicate(context, runtime, tableName, args.where);
+	const scope = scopeConflictWhere(context, runtime);
 	const query = builder.onConflictDoUpdate({
 		set,
-		setWhere:
-			args.where === undefined
-				? undefined
-				: getPredicate(context, runtime, tableName, args.where),
+		setWhere: scope && where ? and(where, scope) : (scope ?? where),
 		target: getConflictTarget(targetColumns) ?? targetColumns,
 	});
 
@@ -2575,11 +2693,20 @@ export const upsertManyRecords = async <Schema extends AnySchema, Meta>(
 		return { count: 0 };
 	}
 
+	let writeArgs = args;
+	if (context.scopes !== undefined) {
+		const data = stampRows(
+			context,
+			getTableRuntime(context, tableName as string),
+			args.data as readonly Record<string, unknown>[],
+		);
+		if (data !== args.data) writeArgs = { ...args, data } as typeof args;
+	}
 	const batchSize = getBatchSize(args.batchSize, 'upsertMany');
 	if (!batchSize || args.data.length <= batchSize)
-		return upsertManyChunk(context, tableName, args);
+		return upsertManyChunk(context, tableName, writeArgs, args);
 
-	return runBatches(args, batchSize, (chunk) =>
+	return runBatches(writeArgs, batchSize, (chunk) =>
 		upsertManyChunk(context, tableName, chunk, args),
 	);
 };
@@ -2598,18 +2725,28 @@ export const upsertManyRecords = async <Schema extends AnySchema, Meta>(
  * @returns A promise resolving to the updated record or `null` if not found.
  */
 export const updateRecord = async <Schema extends AnySchema, Meta>(
-	context: RuntimeContext<Schema, Meta>,
+	baseContext: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args: UpdateArgs<Schema, BetterTableKey<Schema>, Meta>,
 ) => {
-	const runtime = getTableRuntime(context, tableName as string);
+	const runtime = getTableRuntime(baseContext, tableName as string);
+	const context =
+		baseContext.scopes === undefined
+			? baseContext
+			: writeContext(baseContext, runtime);
 	if (hasProjection(args)) validateProjection(context, runtime, args);
 	if (hasRelationWrites(runtime, args.data)) {
 		const scalar = splitRelationData(
 			runtime,
 			args.data as Record<string, unknown>,
 		).scalar;
-		compileUpdateMutations(runtime, context.dialect, 'update', scalar);
+		compileUpdateMutations(
+			runtime,
+			context.dialect,
+			'update',
+			scalar,
+			context as RuntimeContext<AnySchema, unknown>,
+		);
 		const matches = await findManyRecords(context, tableName, {
 			take: 2,
 			where: args.where,
@@ -2633,11 +2770,12 @@ export const updateRecord = async <Schema extends AnySchema, Meta>(
 		let current = matches[0] as Record<string, unknown>;
 		if (Object.keys(prepared.scalar).length) {
 			const primaryWhere = getPrimaryKeyWhere(runtime, current);
-			const predicate = getPredicate(
+			const predicate = getWritePredicate(
 				context,
 				runtime,
 				tableName,
 				primaryWhere,
+				args,
 			);
 			if (!predicate) return null;
 			const set = compileUpdateMutations(
@@ -2666,8 +2804,15 @@ export const updateRecord = async <Schema extends AnySchema, Meta>(
 		context.dialect,
 		'update',
 		args.data as Record<string, unknown>,
+		context as RuntimeContext<AnySchema, unknown>,
 	);
-	const predicate = getPredicate(context, runtime, tableName, args.where);
+	const predicate = getWritePredicate(
+		context,
+		runtime,
+		tableName,
+		args.where,
+		args,
+	);
 	if (!predicate) return null;
 	const pinned = pinsOneRow(runtime, args.where);
 
@@ -2692,10 +2837,14 @@ export const updateRecord = async <Schema extends AnySchema, Meta>(
 		!pinned &&
 		runtime.primaryKey.length > 0 &&
 		Boolean(context.transaction);
+	// Spreads `args` so scope root overrides see the same operation args.
 	const existing = await findFirstRecord(context, tableName, {
+		...args,
+		data: undefined,
+		include: undefined,
 		lock: locked ? 'update' : undefined,
 		orderBy: pinned ? undefined : getSingleRowOrder(runtime),
-		where: args.where,
+		select: undefined,
 	} as QueryArgs<Schema, BetterTableKey<Schema>, Meta>);
 	if (!existing) return null;
 
@@ -2704,11 +2853,12 @@ export const updateRecord = async <Schema extends AnySchema, Meta>(
 		.set(set)
 		.where(
 			locked
-				? getPredicate(
+				? getWritePredicate(
 						context,
 						runtime,
 						tableName,
 						getPrimaryKeyWhere(runtime, existing),
+						args,
 					)
 				: predicate,
 		);
@@ -2730,13 +2880,23 @@ export const updateRecord = async <Schema extends AnySchema, Meta>(
  * @returns A promise resolving to the deleted record or `null` if not found.
  */
 export const deleteRecord = async <Schema extends AnySchema, Meta>(
-	context: RuntimeContext<Schema, Meta>,
+	baseContext: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args: DeleteArgs<Schema, BetterTableKey<Schema>, Meta>,
 ) => {
-	const runtime = getTableRuntime(context, tableName as string);
+	const runtime = getTableRuntime(baseContext, tableName as string);
+	const context =
+		baseContext.scopes === undefined
+			? baseContext
+			: writeContext(baseContext, runtime);
 	if (hasProjection(args)) validateProjection(context, runtime, args);
-	const predicate = getPredicate(context, runtime, tableName, args.where);
+	const predicate = getWritePredicate(
+		context,
+		runtime,
+		tableName,
+		args.where,
+		args,
+	);
 	if (!predicate) return null;
 	const pinned = pinsOneRow(runtime, args.where);
 
@@ -2757,9 +2917,11 @@ export const deleteRecord = async <Schema extends AnySchema, Meta>(
 
 	if (!pinned && runtime.primaryKey.length && context.transaction) {
 		const locked = await findFirstRecord(context, tableName, {
+			...args,
+			include: undefined,
 			lock: 'update',
 			orderBy: getSingleRowOrder(runtime),
-			where: args.where,
+			select: undefined,
 		} as QueryArgs<Schema, BetterTableKey<Schema>, Meta>);
 		if (!locked) return null;
 		const primaryWhere = getPrimaryKeyWhere(runtime, locked);
@@ -2771,7 +2933,15 @@ export const deleteRecord = async <Schema extends AnySchema, Meta>(
 			: locked;
 		await context.db
 			.delete(runtime.table)
-			.where(getPredicate(context, runtime, tableName, primaryWhere));
+			.where(
+				getWritePredicate(
+					context,
+					runtime,
+					tableName,
+					primaryWhere,
+					args,
+				),
+			);
 		return existing;
 	}
 
@@ -2805,11 +2975,15 @@ export const deleteRecord = async <Schema extends AnySchema, Meta>(
  * @returns A promise resolving to a `BatchResult` with the affected count.
  */
 export const updateManyRecords = async <Schema extends AnySchema, Meta>(
-	context: RuntimeContext<Schema, Meta>,
+	baseContext: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args: UpdateManyArgs<Schema, BetterTableKey<Schema>, Meta>,
 ): Promise<BatchResult<Record<string, unknown>>> => {
-	const runtime = getTableRuntime(context, tableName as string);
+	const runtime = getTableRuntime(baseContext, tableName as string);
+	const context =
+		baseContext.scopes === undefined
+			? baseContext
+			: writeContext(baseContext, runtime);
 	const selection = getReturningSelection(
 		runtime,
 		args.select as Record<string, unknown> | undefined,
@@ -2820,8 +2994,15 @@ export const updateManyRecords = async <Schema extends AnySchema, Meta>(
 		context.dialect,
 		'updateMany',
 		args.data as Record<string, unknown>,
+		context as RuntimeContext<AnySchema, unknown>,
 	);
-	const predicate = getPredicate(context, runtime, tableName, args.where);
+	const predicate = getWritePredicate(
+		context,
+		runtime,
+		tableName,
+		args.where,
+		args,
+	);
 	if (!predicate) return { count: 0 };
 
 	const builder = context.db.update(runtime.table).set(set).where(predicate);
@@ -2829,18 +3010,28 @@ export const updateManyRecords = async <Schema extends AnySchema, Meta>(
 		const data = await builder.returning(selection);
 		return { count: data.length, data: data.length ? data : undefined };
 	}
-	const affectedCount = await countRows(context, tableName, args.where);
+	const affectedCount = await countRows(
+		context,
+		tableName,
+		args.where,
+		undefined,
+		args,
+	);
 	if (affectedCount > 0) await builder;
 
 	return { count: affectedCount };
 };
 
 export const updateEachRecords = async <Schema extends AnySchema, Meta>(
-	context: RuntimeContext<Schema, Meta>,
+	baseContext: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args: UpdateEachArgs<Schema, BetterTableKey<Schema>, Meta>,
 ): Promise<BatchResult<Record<string, unknown>>> => {
-	const runtime = getTableRuntime(context, tableName as string);
+	const runtime = getTableRuntime(baseContext, tableName as string);
+	const context =
+		baseContext.scopes === undefined
+			? baseContext
+			: writeContext(baseContext, runtime);
 	const selection = getReturningSelection(
 		runtime,
 		args.select as Record<string, unknown> | undefined,
@@ -2854,11 +3045,23 @@ export const updateEachRecords = async <Schema extends AnySchema, Meta>(
 		rows.values,
 		args.where,
 	);
-	const predicate = getPredicate(context, runtime, tableName, where);
+	const predicate = getWritePredicate(
+		context,
+		runtime,
+		tableName,
+		where,
+		args,
+	);
 	if (!predicate) return { count: 0 };
 
 	const set = buildUpdateEachSet(context, runtime, rows.byKey, args);
-	const affectedCount = await countRows(context, tableName, where);
+	const affectedCount = await countRows(
+		context,
+		tableName,
+		where,
+		undefined,
+		args,
+	);
 	if (affectedCount === 0) return { count: 0 };
 	const builder = context.db.update(runtime.table).set(set).where(predicate);
 
@@ -2893,17 +3096,27 @@ export const updateEachRecords = async <Schema extends AnySchema, Meta>(
  * @returns A promise resolving to a `BatchResult` with the affected count.
  */
 export const deleteManyRecords = async <Schema extends AnySchema, Meta>(
-	context: RuntimeContext<Schema, Meta>,
+	baseContext: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args?: DeleteManyArgs<Schema, BetterTableKey<Schema>, Meta>,
 ): Promise<BatchResult<Record<string, unknown>>> => {
-	const runtime = getTableRuntime(context, tableName as string);
+	const runtime = getTableRuntime(baseContext, tableName as string);
+	const context =
+		baseContext.scopes === undefined
+			? baseContext
+			: writeContext(baseContext, runtime);
 	const selection = getReturningSelection(
 		runtime,
 		args?.select as Record<string, unknown> | undefined,
 		'deleteMany',
 	);
-	const predicate = getPredicate(context, runtime, tableName, args?.where);
+	const predicate = getWritePredicate(
+		context,
+		runtime,
+		tableName,
+		args?.where,
+		args,
+	);
 	if (!predicate) return { count: 0 };
 
 	const builder = context.db.delete(runtime.table).where(predicate);
@@ -2911,7 +3124,13 @@ export const deleteManyRecords = async <Schema extends AnySchema, Meta>(
 		const data = await builder.returning(selection);
 		return { count: data.length, data: data.length ? data : undefined };
 	}
-	const affectedCount = await countRows(context, tableName, args?.where);
+	const affectedCount = await countRows(
+		context,
+		tableName,
+		args?.where,
+		undefined,
+		args,
+	);
 	if (affectedCount > 0) await builder;
 
 	return { count: affectedCount };
@@ -2931,14 +3150,25 @@ export const deleteManyRecords = async <Schema extends AnySchema, Meta>(
  * @returns A promise resolving to the upserted record or `null`.
  */
 export const upsertRecord = async <Schema extends AnySchema, Meta>(
-	context: RuntimeContext<Schema, Meta>,
+	baseContext: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args: UpsertArgs<Schema, BetterTableKey<Schema>, Meta>,
 ) => {
+	let context = baseContext;
 	const runtime = getTableRuntime(context, tableName as string);
 	if (hasProjection(args)) validateProjection(context, runtime, args);
+	let createData = args.create as Record<string, unknown>;
+	if (context.scopes !== undefined) {
+		context = writeContext(upsertContext(context, runtime), runtime);
+		createData = stampInsert(context, runtime, createData);
+		assertImmutable(
+			context,
+			runtime,
+			args.update as Record<string, unknown>,
+		);
+	}
 	if (
-		hasRelationWrites(runtime, args.create) ||
+		hasRelationWrites(runtime, createData) ||
 		hasRelationWrites(runtime, args.update)
 	) {
 		const matches = await findManyRecords(context, tableName, {
@@ -2966,13 +3196,12 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 				) as WhereArg<Schema, BetterTableKey<Schema>>,
 			});
 		return createRecord(context, tableName, {
-			data: args.create,
+			data: createData,
 			include: args.include,
 			meta: args.meta,
 			select: args.select,
 		} as CreateArgs<Schema, BetterTableKey<Schema>, Meta>);
 	}
-	const createData = args.create as Record<string, unknown>;
 	const updateData = args.update as Record<string, unknown>;
 	const insertBuilder = context.db.insert(runtime.table).values(createData);
 	const duplicateKeyUpdate = (
@@ -2984,11 +3213,16 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 		typeof duplicateKeyUpdate === 'function'
 			? getConflictFields(runtime, args.where, createData)
 			: undefined;
+	// A conflict with a row outside the scope updates nothing. MySQL has no
+	// conflict WHERE, so scoped upserts take the read-then-write path.
+	const setWhere = conflictFields
+		? scopeConflictWhere(context, runtime)
+		: undefined;
 
 	if (
 		conflictFields &&
 		(context.dialect !== 'mysql' ||
-			isOnlyMysqlKey(runtime, conflictFields, createData))
+			(!setWhere && isOnlyMysqlKey(runtime, conflictFields, createData)))
 	) {
 		const target = conflictFields
 			.map((field) => runtime.columns[field])
@@ -2996,7 +3230,7 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 		const conflictTarget = target.length === 1 ? target[0] : target;
 		if (!conflictTarget)
 			return createRecord(context, tableName, {
-				data: args.create,
+				data: createData,
 				include: args.include,
 				meta: args.meta,
 				select: args.select,
@@ -3013,6 +3247,7 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 			typeof insertBuilder.onConflictDoUpdate === 'function'
 				? insertBuilder.onConflictDoUpdate({
 						set,
+						setWhere,
 						target: conflictTarget,
 					})
 				: (
@@ -3024,7 +3259,10 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 		if (typeof builder.returning === 'function') {
 			const rows = await builder.returning();
 			const record = rows[0] ?? null;
-			if (!record) return null;
+			if (!record) {
+				if (setWhere) throw conflictMismatch(runtime);
+				return null;
+			}
 			if (!hasProjection(args)) return record;
 			return reloadRecord(context, tableName, record, args);
 		}
@@ -3059,7 +3297,7 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 		});
 
 	return createRecord(context, tableName, {
-		data: args.create,
+		data: createData,
 		include: args.include,
 		meta: args.meta,
 		select: args.select,
@@ -3086,7 +3324,7 @@ export const paginateRecords = async <Schema extends AnySchema, Meta>(
 	const { take, query } = buildOffsetPaginationQuery(args);
 	const [data, total] = await Promise.all([
 		findManyRecords(context, tableName, query, 'paginate'),
-		countRows(context, tableName, args.where),
+		countRows(context, tableName, args.where, undefined, args),
 	]);
 	const skip = query.skip as number;
 	const page = Math.floor(skip / take) + 1;
@@ -3237,8 +3475,14 @@ export const buildFastCursorQuery = <Schema extends AnySchema, Meta>(
 		(args.before && direction === 'desc')
 			? lte(column, value)
 			: gte(column, value);
+	const scope = scopePredicate(
+		context,
+		runtime,
+		undefined,
+		args as Record<string, unknown>,
+	);
 	const flag =
-		sql`exists (select 1 from ${runtime.table} where ${and(where, opposite)})`.mapWith(
+		sql`exists (select 1 from ${runtime.table} where ${and(where, scope, opposite)})`.mapWith(
 			Boolean,
 		);
 	if (!args.where && !args.select) {
@@ -3250,7 +3494,7 @@ export const buildFastCursorQuery = <Schema extends AnySchema, Meta>(
 		return context.db
 			.select({ ...runtime.columns, [CURSOR_OPPOSITE_FLAG]: flag })
 			.from(runtime.table)
-			.where(predicate)
+			.where(scope ? and(predicate, scope) : predicate)
 			.orderBy(
 				(args.after && direction === 'asc') ||
 					(args.before && direction === 'desc')

@@ -1,6 +1,6 @@
 ---
 name: better-drizzle
-description: Write, review, and debug code that uses better-drizzle, the typed repository layer over Drizzle ORM 1.x (`better(db)`, `client.users.findMany`, `paginate`, `cursor`, `upsertMany`, relation `include`/`connect`, transactions, plugins such as rules/zod/soft-delete/timestamps/cache). Use whenever a project imports `better-drizzle`, asks for Prisma-like CRUD on Drizzle, or migrates better-drizzle from drizzle-orm 0.x.
+description: Write, review, and debug code that uses better-drizzle, the typed repository layer over Drizzle ORM 1.x (`better(db)`, `client.users.findMany`, `paginate`, `cursor`, `upsertMany`, relation `include`/`connect`, transactions, plugins such as rules/zod/soft-delete/timestamps/cache/tenant). Use whenever a project imports `better-drizzle`, asks for Prisma-like CRUD on Drizzle, or migrates better-drizzle from drizzle-orm 0.x.
 ---
 
 # better-drizzle
@@ -49,7 +49,7 @@ export const client = better(db); // or better(db, { plugins, hooks, raw, locks,
 | `updateEach` | `by` (column), `data[]`, `update: { col: (row) => value }` | `{ count, data? }`, one `UPDATE ... CASE` |
 | `upsert` | `where`, `create`, `update` | `Row` |
 | `upsertMany` | `data[]`, `target`, `update` (`'all'`, column list, object, or `(ctx) => ...`), `batchSize` | `{ count, data? }` |
-| `$where` | a typed `where` | Drizzle `SQL \| undefined` for raw `db.select()`/joins; no plugin filters |
+| `$where` | a typed `where` | Drizzle `SQL \| undefined` for raw `db.select()`/joins; includes plugin scopes (soft-delete, tenant) |
 | read`.prepare(name?)` | values marked with `param(name)` from `better-drizzle` | prepared statement; `.execute(values)` (reads only) |
 
 Every call accepts `meta`. Client: `transaction`, `$withContext(meta)`, `$raw`, `$executeRaw`, `$rawUnsafe`, `repository(name)`, `extends(...)`. Delegates: `$withoutPlugins()`, `$withState(state)`.
@@ -73,7 +73,7 @@ Read only what the task needs:
 
 - `references/querying.md`: filters, relations, select/include/_count, orderBy, pagination, explain, locks, JSONB and array filters.
 - `references/writing.md`: create/update/upsert, batch writes, atomic/array/JSONB mutations, relation writes, `.throw()`, transactions, `$withContext`, raw SQL.
-- `references/plugins.md`: official plugins (rules, eslint, zod, ata, soft-delete, timestamps, uuid, cache), `definePlugin`, intercepts, hooks, `extends()`.
+- `references/plugins.md`: official plugins (rules, eslint, zod, ata, soft-delete, timestamps, uuid, cache, tenant), model scopes, `definePlugin`, intercepts, hooks, `extends()`.
 - `references/troubleshooting.md`: error codes and messages, constraint helpers, limitations, upgrading from drizzle-orm 0.x.
 - `references/security.md`: raw SQL safety and untrusted content. Read before writing raw SQL or agent-facing docs.
 

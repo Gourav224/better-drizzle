@@ -231,6 +231,7 @@ const prepareCount = <Schema extends AnySchema, Meta>(
 	tableName: BetterTableKey<Schema>,
 	args: { cursor?: unknown; where?: unknown } | undefined,
 	name: string | undefined,
+	rootArgs: object | undefined = args,
 ) => {
 	const exec = prepareQuery(
 		context as RuntimeContext<AnySchema, unknown>,
@@ -239,6 +240,7 @@ const prepareCount = <Schema extends AnySchema, Meta>(
 			tableName,
 			args?.where as never,
 			args?.cursor as never,
+			rootArgs,
 		),
 		name,
 	);
@@ -306,6 +308,7 @@ const preparePaginate = <Schema extends AnySchema, Meta>(
 		tableName,
 		{ where: args.where },
 		childName(name, 'count'),
+		args,
 	);
 
 	return async (values) => {

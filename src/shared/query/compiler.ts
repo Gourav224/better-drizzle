@@ -45,6 +45,7 @@ import type {
 	WhereCompilerContext,
 } from '../../types';
 import { getTableRuntime } from '../client/context';
+import { scopePredicate } from '../client/scopes';
 import { BetterDrizzleError, BetterDrizzleErrorCode } from '../errors';
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -939,6 +940,8 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 			)
 		: makeJoinCondition(fields, references, relationRuntime.table);
 	const subquery = context.db.select({ one: sql`1` }).from(targetTable);
+	// Scope conditions stay outside any negation: out-of-scope rows are absent.
+	const targetScope = scopePredicate(context, relationRuntime, targetAlias);
 	const buildNestedWhere = (nestedWhere?: Record<string, unknown>) =>
 		compileWhereInput(
 			{
@@ -967,10 +970,11 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 			.select({ value: referenceField })
 			.from(targetTable);
 
+		const scoped = and(predicate, targetScope);
 		if (!negated)
 			return inArray(
 				sourceField,
-				predicate ? subquery.where(predicate) : subquery,
+				scoped ? subquery.where(scoped) : subquery,
 			);
 
 		// isNot keeps rows without a related record, like the NOT EXISTS path:
@@ -980,7 +984,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 			isNull(sourceField),
 			notInArray(
 				sourceField,
-				subquery.where(and(isNotNull(referenceField), predicate)),
+				subquery.where(and(isNotNull(referenceField), scoped)),
 			),
 		);
 	};
@@ -989,6 +993,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 		const through = relationState.through;
 		if (!through) return;
 		const throughRuntime = getTableRuntime(context, through.tableName);
+		const throughScope = scopePredicate(context, throughRuntime);
 		const correlate: SQL[] = [];
 		const link: SQL[] = [];
 		for (let index = 0; index < fields.length; index += 1) {
@@ -1006,7 +1011,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				.select({ one: sql`1` })
 				.from(throughRuntime.table)
 				.innerJoin(targetTable, and(...link))
-				.where(and(...correlate, predicate));
+				.where(and(...correlate, throughScope, targetScope, predicate));
 
 		if ('some' in value)
 			return exists(
@@ -1033,6 +1038,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						buildNestedWhere(value.some as Record<string, unknown>),
 					),
 				),
@@ -1043,6 +1049,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						buildNestedWhere(value.none as Record<string, unknown>),
 					),
 				),
@@ -1056,6 +1063,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						nestedWhere ? not(nestedWhere) : undefined,
 					),
 				),
@@ -1068,7 +1076,9 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 	if (relationState.kind === 'one') {
 		if ('is' in value) {
 			if (value.is === null)
-				return notExists(subquery.where(joinCondition));
+				return notExists(
+					subquery.where(and(joinCondition, targetScope)),
+				);
 
 			const membership = buildMembershipFilter(
 				value.is as Record<string, unknown>,
@@ -1079,6 +1089,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						buildNestedWhere(value.is as Record<string, unknown>),
 					),
 				),
@@ -1087,7 +1098,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 
 		if ('isNot' in value) {
 			if (value.isNot === null)
-				return exists(subquery.where(joinCondition));
+				return exists(subquery.where(and(joinCondition, targetScope)));
 
 			const membership = buildMembershipFilter(
 				value.isNot as Record<string, unknown>,
@@ -1099,6 +1110,7 @@ const compileRelationFilter = <Schema extends AnySchema, Meta>(
 				subquery.where(
 					and(
 						joinCondition,
+						targetScope,
 						buildNestedWhere(
 							value.isNot as Record<string, unknown>,
 						),
@@ -1456,7 +1468,7 @@ const compileRelationOrder = <Schema extends AnySchema, Meta>(
 		const subquery = sql`(${context.db
 			.select({ value: expression as SQL })
 			.from(table)
-			.where(and(...links))
+			.where(and(...links, scopePredicate(context, target, alias)))
 			.limit(1)})`;
 		return wrap ? wrap(subquery) : subquery;
 	};
@@ -1525,7 +1537,13 @@ export const buildRelationCount = <Schema extends AnySchema, Meta>(
 		return sql<number>`(${context.db
 			.select({ value: sql<number>`count(*)` })
 			.from(targetTable)
-			.where(and(...links, nestedWhere))})`;
+			.where(
+				and(
+					...links,
+					nestedWhere,
+					scopePredicate(context, targetRuntime, alias),
+				),
+			)})`;
 	}
 
 	const through = relation.through as NonNullable<typeof relation.through>;
@@ -1560,7 +1578,14 @@ export const buildRelationCount = <Schema extends AnySchema, Meta>(
 		.select({ value: sql<number>`count(*)` })
 		.from(throughTable)
 		.innerJoin(targetTable, and(...joins))
-		.where(and(...links, nestedWhere))})`;
+		.where(
+			and(
+				...links,
+				nestedWhere,
+				scopePredicate(context, throughRuntime, throughAlias),
+				scopePredicate(context, targetRuntime, alias),
+			),
+		)})`;
 };
 
 /**
@@ -1752,6 +1777,7 @@ export const buildCountQuery = <Schema extends AnySchema, Meta>(
 	tableName: BetterTableKey<Schema>,
 	where?: WhereArg<Schema, BetterTableKey<Schema>>,
 	cursor?: CursorInput<Schema, BetterTableKey<Schema>> | Placeholder,
+	rootArgs?: object,
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
 	const whereContext = {
@@ -1764,7 +1790,17 @@ export const buildCountQuery = <Schema extends AnySchema, Meta>(
 		where as CompilableWhere | undefined,
 	);
 	const cursorPredicate = compileCursorWhere(whereContext, cursor);
-	const mergedPredicate = and(predicate, cursorPredicate);
+	const mergedPredicate = and(
+		predicate,
+		cursorPredicate,
+		scopePredicate(
+			context,
+			runtime,
+			undefined,
+			rootArgs as Record<string, unknown> | undefined,
+			context.writeScope === runtime,
+		),
+	);
 
 	return context.db
 		.select({ count: count() })
@@ -1777,6 +1813,7 @@ export const countRows = async <Schema extends AnySchema, Meta>(
 	tableName: BetterTableKey<Schema>,
 	where?: WhereArg<Schema, BetterTableKey<Schema>>,
 	cursor?: CursorInput<Schema, BetterTableKey<Schema>> | Placeholder,
+	rootArgs?: object,
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
 	const whereContext = {
@@ -1789,12 +1826,28 @@ export const countRows = async <Schema extends AnySchema, Meta>(
 		where as CompilableWhere | undefined,
 	);
 	const cursorPredicate = compileCursorWhere(whereContext, cursor);
-	const mergedPredicate = and(predicate, cursorPredicate);
+	const mergedPredicate = and(
+		predicate,
+		cursorPredicate,
+		scopePredicate(
+			context,
+			runtime,
+			undefined,
+			rootArgs as Record<string, unknown> | undefined,
+			context.writeScope === runtime,
+		),
+	);
 
 	if (typeof context.db.$count === 'function')
 		return context.db.$count(runtime.table, mergedPredicate);
 
-	const result = await buildCountQuery(context, tableName, where, cursor);
+	const result = await buildCountQuery(
+		context,
+		tableName,
+		where,
+		cursor,
+		rootArgs,
+	);
 
 	return Number(result[0]?.count ?? 0);
 };

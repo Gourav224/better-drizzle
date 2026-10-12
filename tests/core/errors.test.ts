@@ -71,6 +71,34 @@ describe('BetterDrizzleError', () => {
 		expect(error.status).toBe(404);
 	});
 
+	test('maps tenant codes to their statuses', () => {
+		const statuses = {
+			[BetterDrizzleErrorCode.TenantRequired]: 403,
+			[BetterDrizzleErrorCode.TenantMismatch]: 403,
+			[BetterDrizzleErrorCode.TenantRawDenied]: 403,
+			[BetterDrizzleErrorCode.TenantAlreadyScoped]: 400,
+		};
+
+		for (const [code, status] of Object.entries(statuses)) {
+			const error = new BetterDrizzleError({
+				code: code as BetterDrizzleErrorCode,
+				message: 'tenant',
+			});
+
+			expect(error.code).toBe(code as BetterDrizzleErrorCode);
+			expect(error.status).toBe(status);
+		}
+
+		expect(BetterDrizzleErrorCode.TenantRequired).toBe('TENANT_REQUIRED');
+		expect(BetterDrizzleErrorCode.TenantMismatch).toBe('TENANT_MISMATCH');
+		expect(BetterDrizzleErrorCode.TenantRawDenied).toBe(
+			'TENANT_RAW_DENIED',
+		);
+		expect(BetterDrizzleErrorCode.TenantAlreadyScoped).toBe(
+			'TENANT_ALREADY_SCOPED',
+		);
+	});
+
 	test('normalizes plain Error instances', () => {
 		const error = BetterDrizzleError.from(new Error('boom'), {
 			code: BetterDrizzleErrorCode.OperationError,

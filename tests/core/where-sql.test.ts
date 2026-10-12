@@ -102,7 +102,7 @@ describe('$where', () => {
 		).toBe('Renamed');
 	});
 
-	test('does not apply plugin filters', async () => {
+	test('applies plugin scopes such as soft-delete (SCOPE-10)', async () => {
 		const items = sqliteTable('where_sql_items', {
 			deletedAt: integer('deleted_at', { mode: 'timestamp' }),
 			id: integer('id').primaryKey(),
@@ -119,14 +119,20 @@ describe('$where', () => {
 			relations: defineRelations({ items }),
 		});
 		const client = better(raw, { plugins: [softDelete()] });
-		const rows = await raw
-			.select()
-			.from(items)
-			.where(client.items.$where({}));
+		const query = raw.select().from(items).where(client.items.$where({}));
 
+		expect(query.toSQL()).toEqual({
+			params: [],
+			sql: 'select "deleted_at", "id" from "where_sql_items" where ("where_sql_items"."deleted_at" is null)',
+		});
+		expect((await query).map((row) => row.id)).toEqual([1]);
+		expect(
+			await raw
+				.select()
+				.from(items)
+				.where(client.items.$where({ id: 2 })),
+		).toEqual([]);
 		expect(await client.items.findMany()).toHaveLength(1);
-		expect(client.items.$where({})).toBeUndefined();
-		expect(rows).toHaveLength(2);
 		sqlite.close();
 	});
 

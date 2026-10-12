@@ -6,7 +6,7 @@ seoTitle: 'Multi-tenancy with Drizzle ORM'
 seoDescription: 'Build multi-tenant apps with Drizzle ORM: thread tenant IDs and request metadata through hooks, plugins, and transactions with $withContext.'
 ---
 
-better-drizzle does not impose a multitenancy model, but it gives you enough surface to thread request metadata through cleanly - and to enforce tenant scoping with a plugin when you want it automatic.
+better-drizzle does not impose a multitenancy model. For isolation, the [tenant plugin](/docs/plugins/tenant) scopes every query to a tenant. This page covers the other half: threading tenant and request metadata through hooks, plugins, and transactions for logging and tracing.
 
 ## Attach metadata with `meta`
 
@@ -76,51 +76,43 @@ await client.transaction(
 );
 ```
 
-## Enforcing tenant scope automatically
+## Enforcing tenant isolation
 
-`meta` is for *observation*. To *enforce* that every query is scoped to a tenant, use a [plugin transform](/docs/plugins/writing-plugins#transforms) that injects the tenant filter, combined with [`$withState`](/docs/plugins/writing-plugins#withstatestate) to pass the current tenant per request:
-
-```ts
-transform(operation) {
-	const tenantId = operation.state.tenantId;
-	if (!tenantId) return operation;
-	if (!operation.model.hasColumn('tenantId')) return operation;
-
-	operation.where = (
-		operation.where
-			? { AND: [operation.where, { tenantId }] }
-			: { tenantId }
-	) as typeof operation.where;
-
-	return operation;
-}
-```
+`meta` and `$withContext` are for *observation*: they never filter rows. To *enforce* that every query is scoped to a tenant, use the [tenant plugin](/docs/plugins/tenant):
 
 ```ts
+import { tenant } from 'better-drizzle/tenant';
+
+const client = better(db, {
+	plugins: [tenant({ columns: 'organizationId', global: ['plans'] })],
+});
+
 // per request
-const scoped = client.users.$withState({ tenantId: currentTenant });
-await scoped.findMany();
+const scoped = client.$tenant({ organizationId: currentTenant });
+await scoped.projects.findMany({ include: { tasks: true } });
 ```
 
-<Callout type="warn" title="This is not tenant isolation">
-	A transform only sees the root `where` of the operation. These run without
-	it and can read or change rows of other tenants:
+The plugin filters through core model scopes, so the tenant predicate reaches relation loads, relation filters, `_count`, relation sorts, writes, upserts, and the lookups behind `connect`, `disconnect`, and `set`. It stamps tenant columns on create, fails closed without a tenant, denies raw SQL on scoped clients by default, and can set PostgreSQL row-level security settings.
 
-	- relation loads through `include` and nested `select`
-	- relation filters such as `{ posts: { some: ... } }`
-	- `include._count`
-	- the lookups behind `connect`, `disconnect`, and `set`, and `.through()` junction tables
-	- raw SQL (`$raw`, `$executeRaw`, `$rawUnsafe`)
+Combine both: `$tenant()` scopes the data, and `$withContext()` (or `meta`) carries the request ids your hooks log.
 
-	The example is also fail-open: an operation without `tenantId` in its state
-	runs unfiltered, and `create` does not stamp the tenant column. Use it to
-	scope root queries on trusted code paths, and keep database-level isolation
-	(such as PostgreSQL row-level security) when tenants must never see each
-	other's data.
+```ts
+const scoped = client
+	.$tenant({ organizationId: currentTenant })
+	.$withContext({ requestId, userId });
+```
+
+<Callout title="Root-only transforms are not isolation">
+	A [plugin transform](/docs/plugins/writing-plugins#transforms) that adds
+	`{ tenantId }` to `operation.where` only changes the root query. Relation
+	loads, relation filters, `_count`, relation writes, and raw SQL run without
+	it, and a call without the tenant runs unfiltered. Use the tenant plugin, or
+	declare a [model scope](/docs/plugins/writing-plugins#model-scopes) in your
+	own plugin, when tenants must never see each other's data.
 </Callout>
 
 ## Where this fits
 
 - tenant-aware audit logging
 - request tracing with correlation IDs
-- tenant filters on root repository queries
+- tenant isolation with the [tenant plugin](/docs/plugins/tenant)

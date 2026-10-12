@@ -36,3 +36,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 videos
 # Added by code-review-graph
 .code-review-graph/
+
+# Local spec-driven planning artifacts
+.specs/
