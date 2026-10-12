@@ -416,6 +416,7 @@ export const createModelDelegate = <
 					tableName,
 					resolvedArgs.where as never,
 					resolvedArgs.cursor as never,
+					resolvedArgs,
 				);
 		if (kind === 'cursor')
 			return (resolvedArgs) =>

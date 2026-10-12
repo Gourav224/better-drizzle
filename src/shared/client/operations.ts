@@ -71,6 +71,7 @@ import {
 	splitRelationData,
 	validateProjection,
 } from './relations';
+import { scopePredicate } from './scopes';
 
 type ResolvedSkipDuplicates = {
 	enabled: boolean;
@@ -1638,13 +1639,38 @@ const getPredicate = <Schema extends AnySchema, Meta>(
 		where as CompilableWhere | undefined,
 	);
 
+/** Read predicate: the compiled `where` ANDed with the model scope. */
+const getReadPredicate = <Schema extends AnySchema, Meta>(
+	context: RuntimeContext<Schema, Meta>,
+	runtime: TableRuntime,
+	tableName: BetterTableKey<Schema>,
+	where: unknown,
+	rootArgs?: object,
+) => {
+	const predicate = getPredicate(context, runtime, tableName, where);
+	if (context.scopes === undefined) return predicate;
+	const scope = scopePredicate(
+		context,
+		runtime,
+		undefined,
+		rootArgs as Record<string, unknown> | undefined,
+	);
+	return scope && predicate ? and(predicate, scope) : (scope ?? predicate);
+};
+
 const buildReadState = <Schema extends AnySchema, Meta>(
 	context: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args?: QueryArgs<Schema, BetterTableKey<Schema>, Meta>,
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
-	const where = getPredicate(context, runtime, tableName, args?.where);
+	const where = getReadPredicate(
+		context,
+		runtime,
+		tableName,
+		args?.where,
+		args,
+	);
 	const whereContext = {
 		...context,
 		runtime,
@@ -1957,7 +1983,7 @@ const getJoinedRelationWhere = (
 	};
 };
 
-const buildJoinedOneRelationQuery = <Schema extends AnySchema, Meta>(
+export const buildJoinedOneRelationQuery = <Schema extends AnySchema, Meta>(
 	context: RuntimeContext<Schema, Meta>,
 	tableName: BetterTableKey<Schema>,
 	args?: QueryArgs<Schema, BetterTableKey<Schema>, Meta>,
@@ -1990,11 +2016,12 @@ const buildJoinedOneRelationQuery = <Schema extends AnySchema, Meta>(
 		joinConditions.push(eq(sourceField, referenceField));
 	}
 
-	const baseWhere = getPredicate(
+	const baseWhere = getReadPredicate(
 		context,
 		runtime,
 		tableName,
 		relationWhere.baseWhere,
+		args,
 	);
 	const relationPredicate = compileWhereInput(
 		{
@@ -2024,7 +2051,12 @@ const buildJoinedOneRelationQuery = <Schema extends AnySchema, Meta>(
 			joinedRelation.relationRuntime.table,
 			and(...joinConditions),
 		);
-	const where = and(baseWhere, relationPredicate, cursorWhere);
+	const where = and(
+		baseWhere,
+		relationPredicate,
+		scopePredicate(context, joinedRelation.relationRuntime),
+		cursorWhere,
+	);
 
 	if (where) query = query.where(where);
 	if (orderBy?.length) query = query.orderBy(...orderBy);
@@ -2256,7 +2288,13 @@ export const buildExistsQuery = <Schema extends AnySchema, Meta>(
 	},
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
-	const predicate = getPredicate(context, runtime, tableName, args?.where);
+	const predicate = getReadPredicate(
+		context,
+		runtime,
+		tableName,
+		args?.where,
+		args,
+	);
 	const cursorPredicate = compileCursorWhere(
 		{
 			...context,
@@ -3086,7 +3124,7 @@ export const paginateRecords = async <Schema extends AnySchema, Meta>(
 	const { take, query } = buildOffsetPaginationQuery(args);
 	const [data, total] = await Promise.all([
 		findManyRecords(context, tableName, query, 'paginate'),
-		countRows(context, tableName, args.where),
+		countRows(context, tableName, args.where, undefined, args),
 	]);
 	const skip = query.skip as number;
 	const page = Math.floor(skip / take) + 1;
@@ -3237,8 +3275,14 @@ export const buildFastCursorQuery = <Schema extends AnySchema, Meta>(
 		(args.before && direction === 'desc')
 			? lte(column, value)
 			: gte(column, value);
+	const scope = scopePredicate(
+		context,
+		runtime,
+		undefined,
+		args as Record<string, unknown>,
+	);
 	const flag =
-		sql`exists (select 1 from ${runtime.table} where ${and(where, opposite)})`.mapWith(
+		sql`exists (select 1 from ${runtime.table} where ${and(where, scope, opposite)})`.mapWith(
 			Boolean,
 		);
 	if (!args.where && !args.select) {
@@ -3250,7 +3294,7 @@ export const buildFastCursorQuery = <Schema extends AnySchema, Meta>(
 		return context.db
 			.select({ ...runtime.columns, [CURSOR_OPPOSITE_FLAG]: flag })
 			.from(runtime.table)
-			.where(predicate)
+			.where(scope ? and(predicate, scope) : predicate)
 			.orderBy(
 				(args.after && direction === 'asc') ||
 					(args.before && direction === 'desc')

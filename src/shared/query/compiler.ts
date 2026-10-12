@@ -45,6 +45,7 @@ import type {
 	WhereCompilerContext,
 } from '../../types';
 import { getTableRuntime } from '../client/context';
+import { scopePredicate } from '../client/scopes';
 import { BetterDrizzleError, BetterDrizzleErrorCode } from '../errors';
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -1752,6 +1753,7 @@ export const buildCountQuery = <Schema extends AnySchema, Meta>(
 	tableName: BetterTableKey<Schema>,
 	where?: WhereArg<Schema, BetterTableKey<Schema>>,
 	cursor?: CursorInput<Schema, BetterTableKey<Schema>> | Placeholder,
+	rootArgs?: object,
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
 	const whereContext = {
@@ -1764,7 +1766,16 @@ export const buildCountQuery = <Schema extends AnySchema, Meta>(
 		where as CompilableWhere | undefined,
 	);
 	const cursorPredicate = compileCursorWhere(whereContext, cursor);
-	const mergedPredicate = and(predicate, cursorPredicate);
+	const mergedPredicate = and(
+		predicate,
+		cursorPredicate,
+		scopePredicate(
+			context,
+			runtime,
+			undefined,
+			rootArgs as Record<string, unknown> | undefined,
+		),
+	);
 
 	return context.db
 		.select({ count: count() })
@@ -1777,6 +1788,7 @@ export const countRows = async <Schema extends AnySchema, Meta>(
 	tableName: BetterTableKey<Schema>,
 	where?: WhereArg<Schema, BetterTableKey<Schema>>,
 	cursor?: CursorInput<Schema, BetterTableKey<Schema>> | Placeholder,
+	rootArgs?: object,
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
 	const whereContext = {
@@ -1789,12 +1801,27 @@ export const countRows = async <Schema extends AnySchema, Meta>(
 		where as CompilableWhere | undefined,
 	);
 	const cursorPredicate = compileCursorWhere(whereContext, cursor);
-	const mergedPredicate = and(predicate, cursorPredicate);
+	const mergedPredicate = and(
+		predicate,
+		cursorPredicate,
+		scopePredicate(
+			context,
+			runtime,
+			undefined,
+			rootArgs as Record<string, unknown> | undefined,
+		),
+	);
 
 	if (typeof context.db.$count === 'function')
 		return context.db.$count(runtime.table, mergedPredicate);
 
-	const result = await buildCountQuery(context, tableName, where, cursor);
+	const result = await buildCountQuery(
+		context,
+		tableName,
+		where,
+		cursor,
+		rootArgs,
+	);
 
 	return Number(result[0]?.count ?? 0);
 };

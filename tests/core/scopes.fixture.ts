@@ -156,9 +156,16 @@ INSERT INTO scope_post_tags VALUES (1, 1), (1, 2), (2, 2), (3, 1), (3, 2);
 INSERT INTO scope_categories VALUES (1, 'eu-root', NULL, 'eu'), (2, 'eu-child', 1, 'eu'), (3, 'us-child', 1, 'us'), (4, 'us-root', NULL, 'us');
 INSERT INTO scope_notes VALUES (1, 'n1'), (2, 'n2');
 `);
-	const db = better(drizzle({ client: sqlite, relations }), {
+	const raw = drizzle({ client: sqlite, relations });
+	const db = better(raw, {
 		hooks: options.hooks as never,
 		plugins: [regionPlugin(options.events)],
 	});
-	return { db, eu: db.$inRegion('eu'), sqlite, us: db.$inRegion('us') };
+	return {
+		db,
+		eu: db.$inRegion('eu'),
+		raw,
+		sqlite,
+		us: db.$inRegion('us'),
+	};
 };

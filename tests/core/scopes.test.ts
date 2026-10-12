@@ -1,7 +1,11 @@
 import type { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { type ScopeEvent, createScopeDb } from './scopes.fixture';
+import { createRuntimeContext } from '../../src/shared/client/context';
+import { buildJoinedOneRelationQuery } from '../../src/shared/client/operations';
+import { initializePlugins } from '../../src/shared/client/plugins';
+import { withScope } from '../../src/shared/client/scopes';
+import { type ScopeEvent, createScopeDb, regionPlugin } from './scopes.fixture';
 
 let sqlite: Database | undefined;
 
@@ -135,5 +139,153 @@ describe('model scope propagation', () => {
 
 		expect(metas).toEqual([{ regionBypass: '$withoutPlugins' }]);
 		expect(events).toEqual([]);
+	});
+});
+
+const ids = (rows: readonly { id: unknown }[]) => rows.map((row) => row.id);
+
+describe('model scopes on root reads', () => {
+	test('findMany returns only in-scope rows', async () => {
+		const { eu, us } = setup();
+
+		expect(
+			ids(await eu.posts.findMany({ orderBy: { id: 'asc' } })),
+		).toEqual([1, 3, 5]);
+		expect(
+			ids(await us.posts.findMany({ orderBy: { id: 'asc' } })),
+		).toEqual([2, 4]);
+		expect(
+			ids(await eu.posts.findMany({ where: { authorId: 1 } })),
+		).toEqual([1]);
+	});
+
+	test('findFirst, findOne, and findUnique ignore out-of-scope rows', async () => {
+		const { eu } = setup();
+
+		expect(await eu.posts.findFirst({ where: { id: 2 } })).toBeNull();
+		expect(
+			(await eu.posts.findFirst({ orderBy: { id: 'desc' } }))?.id,
+		).toBe(5);
+		expect(await eu.posts.findOne({ where: { id: 4 } })).toBeNull();
+		expect((await eu.posts.findOne({ where: { id: 3 } }))?.id).toBe(3);
+		expect(await eu.posts.findUnique({ where: { id: 2 } })).toBeNull();
+		expect((await eu.posts.findUnique({ where: { id: 1 } }))?.title).toBe(
+			'eu-1',
+		);
+	});
+
+	test('count and exists only see in-scope rows', async () => {
+		const { eu, us } = setup();
+
+		expect(await eu.posts.count()).toBe(3);
+		expect(await us.posts.count()).toBe(2);
+		expect(await eu.posts.count({ where: { authorId: 1 } })).toBe(1);
+		expect(await eu.posts.exists({ where: { id: 2 } })).toBe(false);
+		expect(await eu.posts.exists({ where: { id: 1 } })).toBe(true);
+	});
+
+	test('paginate scopes data and total', async () => {
+		const { eu } = setup();
+
+		const {
+			data,
+			pagination: { hasNext, pageCount, total },
+		} = await eu.posts.paginate({
+			orderBy: { id: 'asc' },
+			page: 1,
+			perPage: 2,
+		});
+
+		expect(ids(data)).toEqual([1, 3]);
+		expect(total).toBe(3);
+		expect(pageCount).toBe(2);
+		expect(hasNext).toBe(true);
+	});
+
+	test('cursor pages and navigation flags only see in-scope rows', async () => {
+		const { eu, us } = setup();
+
+		const forward = await us.posts.cursor({
+			after: { id: 1 },
+			limit: 1,
+			orderBy: { id: 'asc' },
+		});
+		expect(ids(forward.data)).toEqual([2]);
+		expect(forward.pagination.hasPrevious).toBe(false);
+		expect(forward.pagination.hasNext).toBe(true);
+
+		const last = await us.posts.cursor({
+			after: { id: 2 },
+			limit: 1,
+			orderBy: { id: 'asc' },
+		});
+		expect(ids(last.data)).toEqual([4]);
+		expect(last.pagination.hasNext).toBe(false);
+		expect(last.pagination.hasPrevious).toBe(true);
+
+		const backward = await us.posts.cursor({
+			before: { id: 5 },
+			limit: 5,
+			orderBy: { id: 'asc' },
+		});
+		expect(ids(backward.data)).toEqual([2, 4]);
+		expect(backward.pagination.hasNext).toBe(false);
+
+		const filtered = await eu.posts.cursor({
+			after: { id: 3 },
+			limit: 1,
+			orderBy: { id: 'asc' },
+			where: { authorId: 2 },
+		});
+		expect(ids(filtered.data)).toEqual([5]);
+		expect(filtered.pagination.hasPrevious).toBe(false);
+	});
+
+	test('the joined one-relation path scopes both tables', async () => {
+		// Only `lock` reads reach this path, and SQLite rejects locks, so the
+		// builder runs directly against a scoped runtime context.
+		const { raw } = setup();
+		const context = createRuntimeContext(raw, {
+			plugins: [regionPlugin()],
+		});
+		initializePlugins(context);
+		const read = (region: string, name: string) =>
+			buildJoinedOneRelationQuery(
+				withScope(context, 'region', { region }),
+				'posts',
+				{
+					include: { author: true },
+					orderBy: { id: 'asc' },
+					where: { author: { is: { name } } },
+				},
+			) as unknown as Promise<{ author: { name: string }; id: number }[]>;
+
+		expect(await read('eu', 'Bob')).toEqual([]);
+		const usBob = await read('us', 'Bob');
+		expect(ids(usBob)).toEqual([2]);
+		expect(usBob[0]?.author.name).toBe('Bob');
+		expect(ids(await read('eu', 'Ann'))).toEqual([1]);
+		expect(ids(await read('us', 'Ann'))).toEqual([]);
+	});
+
+	test('$withoutPlugins() reads every row unless keepScopes is set', async () => {
+		const { eu } = setup();
+
+		expect(await eu.posts.$withoutPlugins().count()).toBe(5);
+		expect(
+			await eu.posts.$withoutPlugins({ keepScopes: true }).count(),
+		).toBe(3);
+	});
+
+	test('a missing scope value fails before SQL; unscoped models still work', async () => {
+		const { db } = setup();
+
+		await expect(Promise.resolve(db.posts.findMany())).rejects.toThrow(
+			'REGION_REQUIRED posts',
+		);
+		await expect(Promise.resolve(db.posts.count())).rejects.toThrow(
+			'REGION_REQUIRED posts',
+		);
+		expect(await db.notes.count()).toBe(2);
 	});
 });
