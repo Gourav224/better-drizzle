@@ -254,6 +254,8 @@ Anything that produces a Drizzle `SQL` / `SQLWrapper` is accepted, so you keep t
 
 `$where()` goes the other way: it compiles a typed `where` into a Drizzle `SQL` condition, so the same filter works in raw queries, joins, and subqueries.
 
+The condition includes every plugin scope of the model, so it selects the same rows as `findMany`: [soft-delete](/docs/plugins/soft-delete) hides deleted rows, and a [tenant](/docs/plugins/tenant)-scoped client adds its tenant filter. `deleted` and other per-call arguments do not apply. It returns `undefined` only when the `where` is empty and the model has no scope.
+
 ```ts tab="better-drizzle" tab-group="orm"
 import { and, eq } from 'drizzle-orm';
 import { users, posts } from './schema';
@@ -289,4 +291,4 @@ const rows = await db
 
 - It takes the same `where` as `findMany`, including logical operators and relation filters.
 - An empty `where` returns `undefined`, which Drizzle treats as no filter.
-- It is pure compilation: plugin filters such as the soft-delete visibility rule are **not** applied. Add them yourself when you need them.
+- Static plugin filters such as the soft-delete visibility rule are **not** applied. Add them yourself when you need them. On a [tenant](/docs/plugins/tenant)-scoped client the tenant filter **is** applied, so the condition never reaches another tenant's rows.

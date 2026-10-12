@@ -175,8 +175,9 @@ Arguments are normalized before hashing:
 | `findMany({ select: { id: true } })` / `findMany()` | no | different projection |
 | `findMany({ cache: { tags: ['a'] } })` / `findMany({ cache: true })` | no | tags are part of the key |
 | `findMany({ deleted: 'with' })` / `findMany()` with soft delete | no | plugin arguments and the filters they add are part of the key |
+| the same read from two `$tenant()` clients | no | active model scope values are part of the key |
 
-Arguments added by other plugins (`deleted` from soft delete, `validate` from zod) and filters injected by transforms (a tenant filter, the soft-delete `deletedAt IS NULL`) are part of the final arguments. Two readers whose transforms produce different filters never share an entry.
+Arguments added by other plugins (`deleted` from soft delete, `validate` from zod) and filters injected by transforms are part of the final arguments. Active model scopes, including tenant values, are keyed separately even when the query arguments are identical.
 
 Some values cannot be hashed reliably: cyclic values, raw `sql` fragments, functions, and class instances other than `Date`, `Buffer`, and `Uint8Array`. With automatic keys, a read whose arguments or `vary` contain one is not cached, and after hooks see `annotations.cache` as `'bypass'`.
 
@@ -194,7 +195,7 @@ cache({
 await client.$withContext({ tenantId }).users.findMany({ cache: true });
 ```
 
-`vary` receives `{ meta, state, model, operation, transactionContext }` and may return any hashable value: a string, a number, an array, or a plain object. A tenant filter added by a transform does not need `vary`, because the filter is already in the arguments. Use `vary` when the tenant, locale, role, or database session changes the result without changing the arguments.
+`vary` receives `{ meta, state, model, operation, transactionContext }` and may return any hashable value: a string, a number, an array, or a plain object. The [tenant plugin](/docs/plugins/tenant) does not need `vary`; its active scope values are already part of the key. Use `vary` when a locale, role, database session, or a tenant mechanism outside model scopes changes the result without changing the arguments.
 
 A single call can add its own value with `cache: { vary: locale }`.
 
@@ -206,7 +207,7 @@ A single call can add its own value with `cache: { vary: locale }`.
 <namespace>:<version>:k:newest-user
 ```
 
-Its model and relation dependencies still come from the query, so a write to `users` still invalidates it. Use a custom key when you need to invalidate one specific entry with `$cache.invalidate({ keys: ['newest-user'] })`. This deletes the entry and changes its custom-key version, so an older in-flight query cannot repopulate a valid entry. You are responsible for its uniqueness: two different queries that use the same custom key overwrite each other, and `vary` does not apply to them.
+On a scoped client, the key also gets a hash suffix of the active scopes, so two tenants using `newest-user` cannot share an entry. Its model and relation dependencies still come from the query, so a write to `users` still invalidates it. Use a custom key when you need to invalidate entries with `$cache.invalidate({ keys: ['newest-user'] })`; that call invalidates every scope variant of the key and changes their shared custom-key version, so an older in-flight query cannot repopulate a valid entry. You are responsible for uniqueness within each scope: two different queries that use the same custom key overwrite each other, and `vary` does not apply to them.
 
 ## What an entry depends on
 

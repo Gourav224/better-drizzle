@@ -1,0 +1,340 @@
+---
+title: Tenant
+description: Isolate tenants in every query, relation, write, and upsert, with fail-closed defaults and optional PostgreSQL RLS.
+icon: Building2
+seoTitle: 'Tenant Plugin - Multi-Tenant Isolation'
+seoDescription: 'Isolate tenants in Drizzle ORM: scope every read, relation, count, sort, write, and upsert by tenant columns, fail closed, and add PostgreSQL RLS.'
+---
+
+`better-drizzle/tenant` scopes every model that has a tenant column. A client from `db.$tenant({ organizationId })` only reads and writes rows of that tenant. The filter covers the root query and also relation loads, relation filters, `_count`, relation sorts, writes, upserts, and the lookups behind `connect`, `disconnect`, and `set`. Without a tenant, scoped models throw instead of running unfiltered.
+
+<Callout type="warn" title="Experimental">
+	The tenant plugin is experimental in `0.4.x`. Its options and error details
+	can change in a patch release. Pin an exact version if you depend on it.
+	See [stability](/docs/reference/stability).
+</Callout>
+
+## Install
+
+<Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
+
+<Tab value="npm">
+
+```bash
+npm install better-drizzle
+```
+
+</Tab>
+
+<Tab value="pnpm">
+
+```bash
+pnpm add better-drizzle
+```
+
+</Tab>
+
+<Tab value="yarn">
+
+```bash
+yarn add better-drizzle
+```
+
+</Tab>
+
+<Tab value="bun">
+
+```bash
+bun add better-drizzle
+```
+
+</Tab>
+
+</Tabs>
+
+## Setup
+
+```ts
+import { better } from 'better-drizzle';
+import { tenant } from 'better-drizzle/tenant';
+
+const client = better(db, {
+	plugins: [
+		tenant({
+			columns: ['organizationId', 'workspaceId'],
+			global: ['organizations', 'plans'],
+		}),
+	],
+});
+```
+
+Each model is scoped by the configured columns it has. With the setup above, `projects` (with `organizationId`) is scoped by organization, `tasks` (with both columns) by organization and workspace, and `plans` is never filtered. A model with none of the columns must be listed in `global`, set to `false` in `models`, or be a [junction](#junction-tables); otherwise `better()` throws `PLUGIN_REQUIRED_COLUMN_MISSING`.
+
+Column names are the property keys of your Drizzle tables, not the database column names.
+
+## Options
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `columns` | required | tenant column key, or a list of keys |
+| `global` | `[]` | table keys that are never filtered nor stamped |
+| `models` | `{}` | per-model overrides: a column list, `{ columns, nullable }`, or `false` |
+| `missing` | `'throw'` | without a tenant value: `'throw'` fails with `TENANT_REQUIRED`, `'allow'` runs unfiltered on the missing columns |
+| `raw` | `'deny'` | raw SQL on scoped clients: `'deny'`, `'allow'`, or `'set-local'` (requires `rls`) |
+| `rls` | `false` | PostgreSQL only: `true`, or `{ settings: { [column]: 'setting.name' } }` |
+| `strict` | `false` | hides scoped models from the root client type; requires `missing: 'throw'` |
+
+## Scoping a client
+
+`$tenant()` takes an object keyed by tenant column and returns a new client. The original client stays unscoped. Values are typed from the insert type of each column.
+
+```ts
+const scoped = client.$tenant({ organizationId: session.organizationId });
+
+const projects = await scoped.projects.findMany({
+	include: { tasks: true },
+	where: { archived: false },
+});
+```
+
+A context can be partial. Each model needs a value for every column it uses, so an organization-only client reads `projects` but throws `TENANT_REQUIRED` on `tasks`. Narrow it with the missing columns:
+
+```ts
+const org = client.$tenant({ organizationId: 'org_1' });
+const workspace = org.$tenant({ workspaceId: 7 });
+
+await org.projects.findMany(); // organization filter
+await workspace.tasks.findMany(); // organization and workspace filters
+```
+
+Narrowing only adds columns. Setting a column that is already set throws `TENANT_ALREADY_SCOPED`, even with the same value. `$tenant()` throws `INVALID_ARGS` for an empty object, a key outside `columns`, or a `null`/`undefined` value.
+
+`client.$tenant.values` returns the active values (`{}` on an unscoped client). The scope survives `$withContext()`, `extends()`, transactions, nested savepoints, and the implicit transactions of relation writes.
+
+```ts
+app.use(async (c, next) => {
+	c.set('db', client.$tenant({ organizationId: c.get('session').orgId }));
+	await next();
+});
+```
+
+`$tenant()` clones the client like [`$withContext()`](/docs/guides/multi-tenancy#scope-default-metadata-with-withcontext), so one call per request costs the same.
+
+## Bypassing the tenant
+
+`$withoutTenant({ reason })` returns a client without the tenant scope, for jobs, migrations, and admin tools. `reason` is required and must be a non-empty string. Every operation on that client passes `meta.tenantBypass = { reason }` to hooks, so bypasses can be logged:
+
+```ts
+const admin = client.$withoutTenant({ reason: 'nightly-billing' });
+await admin.projects.count(); // every tenant
+
+const audited = better(db, {
+	hooks: {
+		beforeQuery({ meta, table }) {
+			if (meta?.tenantBypass) console.warn('tenant bypass', table, meta.tenantBypass);
+		},
+	},
+	plugins: [tenant({ columns: 'organizationId' })],
+});
+```
+
+`$withoutPlugins()` on a scoped delegate drops every plugin, the tenant scope included. Its operations pass `meta.tenantBypass = { reason: '$withoutPlugins' }`. On an unscoped client nothing is bypassed and no meta is added.
+
+The recorded bypass reason cannot be replaced by per-call `meta` or a later `$withContext()` call. Calling `$tenant()` on a bypassed client clears the marker when it restores the tenant scope.
+
+## What is filtered
+
+On a scoped client, the core adds the tenant predicate to every statement that references a scoped table.
+
+| Path | Behavior |
+| --- | --- |
+| `findMany`, `findFirst`, `findOne`, `findUnique`, `count`, `exists` | only tenant rows |
+| `paginate`, `cursor` | `data`, `total`, and the navigation flags count only tenant rows |
+| `include`, relation `select`, `.through()` relations | every relation stage, per-parent `take`/`skip` windows included |
+| `some`, `every`, `none`, `is`, `isNot` | rows of other tenants are absent: they never match `some` and never break `every` |
+| `include._count` | counts only tenant rows |
+| `orderBy` a relation field or `_count` | sort values come from tenant rows only |
+| `update`, `delete`, `updateMany`, `deleteMany`, `updateEach` | only tenant rows; an empty `where` stays a no-op |
+| `connect`, `disconnect`, `set` | selectors resolve inside the tenant |
+| `$where()` | the compiled predicate includes the tenant filter |
+| prepared reads | the tenant values are bound when `.prepare()` runs |
+
+```ts tab="better-drizzle" tab-group="orm"
+const scoped = client.$tenant({ organizationId });
+
+const rows = await scoped.projects.findMany({
+	where: { name: { contains: 'api' } },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+const rows = await db
+	.select()
+	.from(projects)
+	.where(
+		and(
+			eq(projects.organizationId, organizationId),
+			like(projects.name, '%api%'),
+		),
+	);
+```
+
+A related row of another tenant is treated as missing. If a task of organization `a` points at a project of organization `b`, `include: { project: true }` returns `project: null`, and `where: { project: { is: null } }` matches the task.
+
+## Writes
+
+Creates stamp the tenant columns, so they are optional in the input types of `create`, `createMany`, `upsert`, and `upsertMany`, and in the `$zod` and `ata` create schemas.
+
+```ts tab="better-drizzle" tab-group="orm"
+const project = await scoped.projects.create({ data: { name: 'API' } });
+// project.organizationId === organizationId
+```
+
+```ts tab="Drizzle" tab-group="orm"
+const [project] = await db
+	.insert(projects)
+	.values({ name: 'API', organizationId })
+	.returning();
+```
+
+| Case | Result |
+| --- | --- |
+| create without the column | stamped with the context value |
+| create with the context value | accepted |
+| create with another value | `TENANT_MISMATCH` before SQL runs |
+| update, `updateMany`, `updateEach`, or an upsert update that changes a tenant column | `TENANT_MISMATCH` before SQL runs |
+| `upsertMany` with `update: 'all'` or a column list | tenant columns are left out of the update set |
+
+Tenant columns cannot move a row to another tenant. Use `$withoutTenant()` for that.
+
+## Upserts
+
+An upsert can hit a unique key that belongs to another tenant. The plugin never updates that row; how the call ends depends on the dialect.
+
+| Dialect | `upsert` | `upsertMany` |
+| --- | --- | --- |
+| PostgreSQL, SQLite | native `ON CONFLICT DO UPDATE ... WHERE <tenant>`; a conflict with another tenant's row throws `TENANT_MISMATCH` and leaves the row unchanged | conflicts with other tenants' rows are skipped and not counted |
+| MySQL | always a scoped read, then a write: the read misses the other tenant's row, so the insert fails with the database duplicate-key error (`ER_DUP_ENTRY`, `isUniqueViolation(error)` is `true`) | `col = IF(<tenant matches>, VALUES(col), col)`: other tenants' rows stay unchanged, and `count` is the number of rows sent |
+
+On PostgreSQL and SQLite, an upsert whose `where` does not identify a key also runs as a read followed by a write, and a key of another tenant ends in the database's unique violation.
+
+## Relation writes
+
+`connect`, `disconnect`, and `set` resolve their selectors inside the tenant. A selector that points at another tenant's row throws `Relation selector did not match a record.` and nothing is written. `set` on a `.through()` relation replaces only links to the tenant's targets; links to rows of other tenants stay. A junction table that has tenant columns gets them stamped on new links.
+
+When a foreign key includes a tenant column, `connect` accepts the context value and throws `TENANT_MISMATCH` for another one.
+
+## Junction tables
+
+A table without tenant columns that is only reached through `.through()` relations between scoped models inherits the scope of both ends. It needs no tenant column and no `global` entry. Direct access to such a junction (`scoped.projectMembers.findMany()`) still throws `TENANT_REQUIRED`, because the junction alone cannot be filtered. Use `$withoutTenant()` to read it directly, or give it tenant columns.
+
+## Nullable models
+
+A model listed as `{ columns, nullable: true }` matches the tenant value or `NULL`, so `NULL` rows are shared by every tenant:
+
+```ts
+tenant({
+	columns: 'organizationId',
+	models: { templates: { columns: ['organizationId'], nullable: true } },
+});
+```
+
+Creates always stamp the context value. Shared rows are read-only for a scoped client: `update`, `updateMany`, `updateEach`, `delete`, `deleteMany`, the update branch of `upsert` and `upsertMany`, and relation writes that change the related row match the tenant value only, never `NULL`. Pointing your own row at a shared row (`connect` when your row holds the foreign key) still works. An update on a shared row returns `null` (count `0` for batch writes), and setting its tenant column to your own value does not claim it. An upsert that conflicts with a shared row fails like a conflict with another tenant's row. Create, change, or delete shared rows through `$withoutTenant()`.
+
+## Global models and overrides
+
+Models in `global`, or set to `false` in `models`, are never filtered nor stamped, even when they have a tenant column. `models` can also restrict a model to some of the columns:
+
+```ts
+tenant({
+	columns: ['organizationId', 'workspaceId'],
+	models: {
+		auditLogs: false,
+		boards: ['workspaceId'],
+	},
+});
+```
+
+A listed column that the model lacks throws `PLUGIN_REQUIRED_COLUMN_MISSING`; a listed column outside `columns` throws `INVALID_ARGS`.
+
+## Missing tenant
+
+With `missing: 'throw'` (the default), an operation on a scoped model without a value for each of its columns throws `TENANT_REQUIRED` before any SQL runs. The error carries `table`, `column`, and `details.columns`. Global models keep working on the root client.
+
+`missing: 'allow'` runs those operations unfiltered on the missing columns. It exists for gradual migrations; leave it on only until every code path calls `$tenant()`.
+
+## Strict mode
+
+`strict: true` removes scoped models from the root client type, as properties and as `repository(name)` names (table keys and database names), including its `$withContext()` and `extends()` clients and its transactions. Only `$tenant()` and `$withoutTenant()` clients expose them, so a forgotten `$tenant()` fails at compile time. Global models stay on the root client. At runtime, root calls still throw `TENANT_REQUIRED`. `strict` with `missing: 'allow'` is a type error and a bootstrap error.
+
+## Raw SQL
+
+Raw SQL cannot be filtered, so `raw` decides what scoped clients may do with `$raw`, `$executeRaw`, and `$rawUnsafe`. Unscoped and `$withoutTenant()` clients are not affected.
+
+| `raw` | Behavior on a scoped client |
+| --- | --- |
+| `'deny'` | throws `TENANT_RAW_DENIED` before SQL runs, unless the call passes `{ tenant: 'trusted' }` |
+| `'allow'` | runs unchanged |
+| `'set-local'` | runs inside a transaction with the `rls` settings applied; requires `rls` |
+
+```ts
+await scoped.$raw(
+	sql`select count(*) from projects where organization_id = ${orgId}`,
+	{ tenant: 'trusted' },
+);
+```
+
+The opt-in reaches raw hooks in `rawOptions`. Tagged-template calls (`` scoped.$raw`...` ``) cannot pass options, so under `'deny'` they always throw on a scoped client; pass a `sql` object with options instead.
+
+## PostgreSQL row-level security
+
+`rls: true` adds the database as a second line of defense. For each operation on a scoped client, the plugin runs `select set_config(<setting>, <value>, true)` for every active tenant column inside the operation's transaction:
+
+```sql
+alter table projects enable row level security;
+alter table projects force row level security;
+create policy tenant_isolation on projects
+	using (organization_id = nullif(current_setting('app.organization_id', true), ''))
+	with check (organization_id = nullif(current_setting('app.organization_id', true), ''));
+```
+
+```ts
+tenant({ columns: 'organizationId', raw: 'set-local', rls: true });
+```
+
+- The setting defaults to `app.<database column name>` of the first model that has the column. Override it with `rls: { settings: { organizationId: 'tenant.org' } }`.
+- Each configured tenant column needs a distinct, non-empty setting name; invalid or duplicate names fail at client initialization.
+- Use `nullif(current_setting(..., true), '')` in each RLS policy. PostgreSQL resets a custom setting to an empty string when the tenant scope is removed inside a transaction; `nullif` keeps that state from matching rows with an empty tenant ID.
+- With `rls` enabled, `$tenant()` rejects empty string values because the policy treats an empty setting as absent.
+- Settings are transaction-local. Standalone operations, `.explain()`, prepared executions, and `'set-local'` raw calls run in an implicit transaction. Inside `transaction()`, the settings run when the active tenant changes; concurrent calls from sibling tenant clients are serialized with their SQL so each uses its own setting.
+- Prepared reads re-prepare on each execution under RLS, because the settings must run in the same transaction. Expect prepared reads to cost about as much as regular reads there.
+- Policies apply only to roles that are not superusers and do not have `BYPASSRLS`. Connect as an application role.
+- With `raw: 'deny'` or `'allow'`, a raw call does not install settings by itself. Outside a transaction, the policy sees no tenant setting and hides the rows. Inside an existing transaction, a raw call can use a setting installed by an earlier scoped operation; switching to `$withoutTenant()` clears that setting before the raw call.
+
+`rls` on MySQL or SQLite throws `PLUGIN_DIALECT_UNSUPPORTED`; `raw: 'set-local'` without `rls` throws `INVALID_ARGS`.
+
+## With other plugins
+
+- [cache](/docs/plugins/cache): scoped reads include the tenant values in their cache key, so tenants never share entries. Invalidation stays per model, across tenants.
+- [soft-delete](/docs/plugins/soft-delete): soft deletes and `restore()` keep the tenant scope.
+- [zod](/docs/plugins/zod) and [ata](/docs/plugins/ata): tenant columns are optional in create schemas, like other generated columns.
+- [uuid](/docs/plugins/uuid) and [timestamps](/docs/plugins/timestamps): they fill their own columns; the tenant stamp runs on the same insert.
+- [rules](/docs/plugins/rules): its tenant rules check hook payloads only. Use this plugin for isolation.
+
+## Errors
+
+| Code | Status | When |
+| --- | --- | --- |
+| `TENANT_REQUIRED` | 403 | a scoped model runs without a value for one of its columns, or an inherited junction is used directly |
+| `TENANT_MISMATCH` | 403 | a write sets a tenant column to another value, or a PostgreSQL/SQLite upsert conflicts with another tenant's row |
+| `TENANT_RAW_DENIED` | 403 | raw SQL on a scoped client under `raw: 'deny'` without `{ tenant: 'trusted' }` |
+| `TENANT_ALREADY_SCOPED` | 400 | `$tenant()` sets a column that is already set |
+| `INVALID_ARGS` | 400 | invalid `$tenant()` or `$withoutTenant()` input, or invalid options |
+| `PLUGIN_REQUIRED_COLUMN_MISSING` | 500 | a model has no tenant column and is not global, or a `models` column is missing |
+| `PLUGIN_DIALECT_UNSUPPORTED` | 500 | `rls` outside PostgreSQL |
+
+## Limits
+
+- Raw SQL is not rewritten. Only the `raw` policy and RLS cover it.
+- The scope is a filter on better-drizzle queries. Drizzle queries on the underlying `db` bypass it; use RLS when other code shares the database.
+- Cache invalidation is per model, not per tenant.

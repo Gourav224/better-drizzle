@@ -7,6 +7,7 @@
 		"uuid",
 		"soft-delete",
 		"cache",
+		"tenant",
 		"zod",
 		"ata",
 		"rules",

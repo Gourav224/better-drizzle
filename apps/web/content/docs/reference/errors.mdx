@@ -224,6 +224,10 @@ try {
 | Plugins | `PLUGIN_OPERATION_ARG_CONFLICT` | 500 | Two plugins add the same operation arg field. |
 | Plugins | `PLUGIN_REQUIRED_COLUMN_MISSING` | 500 | A model lacks a column a plugin requires. |
 | Plugins | `PLUGIN_REQUIRED_COLUMN_TYPE` | 500 | A required column exists with a different Drizzle type. |
+| Tenant | `TENANT_REQUIRED` | 403 | A scoped model ran without a tenant value for one of its columns, or an inherited junction was used directly. `details.columns` lists the columns. See [tenant](/docs/plugins/tenant#missing-tenant). |
+| Tenant | `TENANT_MISMATCH` | 403 | A write set a tenant column to another tenant's value, or a PostgreSQL/SQLite upsert conflicted with another tenant's row. |
+| Tenant | `TENANT_RAW_DENIED` | 403 | Raw SQL ran on a tenant-scoped client under `raw: 'deny'` without `{ tenant: 'trusted' }`. |
+| Tenant | `TENANT_ALREADY_SCOPED` | 400 | `$tenant()` set a column that the client already scopes. |
 | Cache | `CACHE_INVALID_OPTIONS` | 500 | Thrown by `cache()` when `store` or `ttl` is missing, a duration is not a positive number of seconds or a `'30s'` / `'5m'` / `'1h'` / `'1d'` string, a `ttl` or `negativeTtl` (plugin, model, or per call) exceeds `versionTtl`, or `maxSize` is not a positive finite number. A per-call TTL is checked when the read runs. `redis()` throws it for a client without `send`, `call`, or `sendCommand`. |
 | Cache | `CACHE_STORE_ERROR` | 500 | The store's `get`, `set`, or `delete` failed. Thrown by `$cache.invalidate()` and `$cache.clear()`. During reads and writes it is only passed to `onError` (`details.stage`: `read`, `write`, or `invalidate`); the read falls back to the database and the write still succeeds. |
 | Cache | `CACHE_SERIALIZATION_ERROR` | 500 | A result could not be serialized, or a stored entry could not be deserialized. Never thrown: passed to `onError` (`details.stage`: `serialize` or `deserialize`); the result is returned uncached, or the read runs the query. |

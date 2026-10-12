@@ -43,8 +43,8 @@ const rows = await db
 	.where(and(client.users.$where({ active: true }), client.posts.$where({ score: { gt: 10 } })));
 ```
 
-- An empty `where` returns `undefined` (Drizzle treats it as no filter).
-- It is pure compilation: plugin filters (soft-delete visibility, tenant scopes) are **not** applied; add them yourself.
+- An empty `where` on a model without plugin scopes returns `undefined` (Drizzle treats it as no filter).
+- Plugin scopes are ANDed in, like `findMany`: soft-delete visibility always, and the tenant filter on a `$tenant()` client. Per-call args such as `deleted` do not apply.
 
 ## Projections and relations
 

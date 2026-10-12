@@ -86,9 +86,11 @@ Every option is optional. Column names are the property keys in your Drizzle tab
 | `update`, `updateMany`, `updateEach` | deleted rows are not updated |
 | `delete`, `deleteMany` | soft by default: set `column` on live rows instead of deleting |
 | `upsert`, `upsertMany` | not filtered: hiding a deleted row would turn the update into a duplicate insert |
-| relations loaded with `include`, a relation `select`, or `_count` | not filtered |
+| `include`, relation `select`, relation filters (`some`, `every`, `none`, `is`, `isNot`), `_count`, relation sorts | deleted rows always hidden |
+| `connect`, `disconnect`, `set` | deleted rows cannot be linked or unlinked |
+| `$where()` | deleted rows hidden: the condition includes the visibility filter |
 
-Every filtered operation accepts `deleted: 'without' | 'with' | 'only'`. A write whose `where` is empty stays a no-op: the plugin never turns `deleteMany({})` into "soft delete everything".
+The reads, updates, and deletes in the first rows accept `deleted: 'without' | 'with' | 'only'`. It controls the root rows only; nested reads always hide deleted rows. A write whose `where` is empty stays a no-op: the plugin never turns `deleteMany({})` into "soft delete everything".
 
 ```ts
 await client.users.findMany(); // visible rows only
@@ -96,6 +98,16 @@ await client.users.findMany({ deleted: 'with' }); // include deleted
 await client.users.findMany({ deleted: 'only' }); // only deleted
 await client.users.count({ deleted: 'with' });
 ```
+
+<Callout type="warn" title="Changed in 0.4.0">
+	The plugin now filters through core [model
+	scopes](/docs/plugins/writing-plugins#model-scopes). Before 0.4.0 it only
+	filtered the root query, so deleted rows appeared in `include`, relation
+	`select`, relation filters, `_count`, and relation sorts. They are hidden
+	there now, and `connect`/`set` no longer reach deleted rows. Read deleted
+	relations from the root with `deleted: 'with'`, or through
+	`$withoutPlugins()`.
+</Callout>
 
 ## Deleting and restoring
 
@@ -126,9 +138,10 @@ A soft `delete()` runs an `update` of the same `where` limited to live rows, the
 
 - The timestamp is an ISO 8601 string (`new Date().toISOString()`) when the column's Drizzle data type is `string`, such as a SQLite `text` column. Otherwise it is a `Date`.
 - `deletedBy` is written only when the call passes it and the table has `deletedByColumn`.
-- `restore()` and `restoreById()` exist only on tables with `column`. They set `column` (and `deletedByColumn`, when present) to `null` through `$withoutPlugins().update(...)`. Both accept `select`, `include`, and `meta`.
+- `restore()` and `restoreById()` exist only on tables with `column`. They set `column` (and `deletedByColumn`, when present) to `null` through `$withoutPlugins({ keepScopes: true }).update(...)` with `deleted: 'with'`. Both accept `select`, `include`, and `meta`.
 - `restoreById(id)` matches the `id` column. Tables whose primary key is named differently should use `restore({ where })`.
-- The inner update runs through `$withoutPlugins()`, so other plugins (such as timestamps) do not see it. Client `beforeUpdate` / `afterUpdate` hooks still fire for it, before the delete hooks.
+- The inner update runs through `$withoutPlugins({ keepScopes: true })`, so other plugins (such as timestamps) do not see it, but model scopes stay: a soft delete or restore on a [tenant](/docs/plugins/tenant)-scoped client only touches that tenant's rows. Client `beforeUpdate` / `afterUpdate` hooks still fire for it, before the delete hooks.
+- `$withoutPlugins()` (without `keepScopes`) drops the soft-delete filter with every other scope, so it reads deleted rows at every level and deletes physically.
 - `mode: 'hard'` falls back to the built-in physical delete. It matches deleted and live rows alike unless the call passes `deleted`.
 
 <Callout title="Need a one-off hard delete elsewhere?">
