@@ -137,7 +137,7 @@ export const regionPlugin = (events: ScopeEvent[] = []) =>
 export type MetaHooks = Record<string, (context: { meta?: unknown }) => void>;
 
 export const createScopeDb = (
-	options: { events?: ScopeEvent[]; hooks?: MetaHooks } = {},
+	options: { events?: ScopeEvent[]; hooks?: MetaHooks; plain?: boolean } = {},
 ) => {
 	const sqlite = new Database(':memory:');
 	sqlite.exec(`
@@ -159,7 +159,16 @@ INSERT INTO scope_notes VALUES (1, 'n1'), (2, 'n2');
 	const raw = drizzle({ client: sqlite, relations });
 	const db = better(raw, {
 		hooks: options.hooks as never,
-		plugins: [regionPlugin(options.events)],
+		plugins: [
+			options.plain
+				? {
+						...regionPlugin(),
+						hooks: undefined,
+						intercept: undefined,
+						transform: undefined,
+					}
+				: regionPlugin(options.events),
+		],
 	});
 	return {
 		db,

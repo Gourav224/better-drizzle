@@ -1,3 +1,5 @@
+import { and } from 'drizzle-orm';
+
 import type {
 	AfterCreateHookContext,
 	AfterDeleteHookContext,
@@ -70,7 +72,7 @@ import {
 } from './plugins';
 import { type PreparedReadKind, fillParams, prepareRead } from './prepared';
 import { hasRelationWrites } from './relations';
-import { withoutScopes } from './scopes';
+import { scopePredicate, withoutScopes } from './scopes';
 
 const EMPTY_VALUES = Object.freeze({}) as Record<string, unknown>;
 
@@ -173,10 +175,14 @@ export const createModelDelegate = <
 			);
 		},
 		$where(where?: CompilableWhere) {
-			return compileWhereInput(
+			const predicate = compileWhereInput(
 				{ ...context, runtime, tableName: name },
 				where,
 			);
+			const scope = scopePredicate(context, runtime);
+			return scope && predicate
+				? and(predicate, scope)
+				: (scope ?? predicate);
 		},
 	} as BetterDrizzleModelDelegate<
 		Schema,

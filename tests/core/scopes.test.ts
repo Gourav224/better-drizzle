@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, test } from 'bun:test';
 
+import { param } from '../../src';
 import { createRuntimeContext } from '../../src/shared/client/context';
 import { buildJoinedOneRelationQuery } from '../../src/shared/client/operations';
 import { initializePlugins } from '../../src/shared/client/plugins';
@@ -287,5 +288,62 @@ describe('model scopes on root reads', () => {
 			'REGION_REQUIRED posts',
 		);
 		expect(await db.notes.count()).toBe(2);
+	});
+});
+
+describe('model scopes on $where, prepared reads, and explain', () => {
+	test('$where returns the predicate ANDed with the scope', async () => {
+		const { eu, raw } = setup();
+		const { posts } = raw._.relations;
+
+		const scoped = await raw
+			.select({ id: posts.table.id })
+			.from(posts.table)
+			.where(eu.posts.$where({ authorId: 1 }));
+		expect(ids(scoped)).toEqual([1]);
+
+		const scopeOnly = await raw
+			.select({ id: posts.table.id })
+			.from(posts.table)
+			.where(eu.posts.$where())
+			.orderBy(posts.table.id);
+		expect(ids(scopeOnly)).toEqual([1, 3, 5]);
+	});
+
+	test('prepared reads stay scoped on every execution', async () => {
+		const { eu, us } = setup({ plain: true });
+		const byAuthor = eu.posts
+			.findMany({
+				orderBy: { id: 'asc' },
+				where: { authorId: param('author') },
+			})
+			.prepare();
+		const total = us.posts.count().prepare();
+
+		expect(ids(await byAuthor.execute({ author: 1 }))).toEqual([1]);
+		expect(ids(await byAuthor.execute({ author: 2 }))).toEqual([5]);
+		expect(await total.execute({})).toBe(2);
+	});
+
+	test('.prepare() on a client without the scope value throws the definition error', () => {
+		const { db } = setup({ plain: true });
+
+		expect(() => db.posts.findMany().prepare()).toThrow(
+			'REGION_REQUIRED posts',
+		);
+	});
+
+	test('explain shows the scoped SQL', async () => {
+		const { eu } = setup();
+
+		const plan = await eu.posts.findMany({ where: { id: 1 } }).explain();
+		const statement = plan.statements[0];
+
+		expect(statement?.sql).toContain('`scope_posts`.`region` = ?');
+		expect(statement?.params).toEqual([1, 'eu']);
+
+		const total = await eu.posts.paginate({ perPage: 1 }).explain();
+		const count = total.statements.find((entry) => entry.key === 'total');
+		expect(count?.params).toEqual(['eu']);
 	});
 });
