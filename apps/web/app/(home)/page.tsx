@@ -71,24 +71,26 @@ const FOOTER_LINKS = [
 	},
 ];
 
-const HERO_CODE = `const client = better(db); // your drizzle({ relations }) instance
+const HERO_CODE = `import { better } from 'better-drizzle';
+import { softDelete } from 'better-drizzle/soft-delete';
 
-// relation filters, nested includes, and counts - typed end to end
+// your drizzle({ relations }) instance, one plugin
+const client = better(db, { plugins: [softDelete()] });
+
+// top 10 authors by post count, each with their 3 latest posts
 const authors = await client.users.findMany({
   where: { posts: { some: { published: true } } },
+  orderBy: { posts: { _count: 'desc' } },
   include: {
     posts: { orderBy: { createdAt: 'desc' }, take: 3 },
     _count: { select: { posts: true } },
   },
+  take: 10,
 });
+// deleted users and posts are skipped at every level:
+// the filter, the sort, the include, and the count
 
-authors[0].posts[0].title; // string
-authors[0]._count.posts; // number
-
-// relation writes run in one transaction
-await client.posts.create({
-  data: { title: 'Hello', author: { connect: { id: 1 } } },
-});`;
+await client.posts.delete({ where: { id } }); // sets deletedAt`;
 
 const RAW_CODE = `import { and, count, desc, eq, getColumns, sql } from 'drizzle-orm';
 
@@ -299,16 +301,19 @@ const AGENT_POINTS = [
 	{
 		icon: Bot,
 		title: 'Skill pack in the repo',
+		href: '/docs/ai#what-ships',
 		body: 'SKILL.md plus focused references for querying, writes, plugins, and troubleshooting, loaded only when a task needs them.',
 	},
 	{
 		icon: ShieldCheck,
 		title: 'Zero scripts, zero network',
+		href: '/docs/ai#security-model',
 		body: 'Plain Markdown. No install commands, no remote fetches, and explicit rules against prompt injection from your codebase.',
 	},
 	{
 		icon: SearchCheck,
 		title: 'Guardrails that catch mistakes',
+		href: '/docs/plugins/rules',
 		body: 'The ESLint plugin flags unbounded reads and unsafe writes in the editor, and the rules plugin enforces them at runtime.',
 	},
 ];
@@ -652,14 +657,19 @@ export default function HomePage() {
 				</div>
 				<ul className="flex flex-col gap-6">
 					{AGENT_POINTS.map((point) => (
-						<li key={point.title} className="flex gap-4">
-							<point.icon className="text-brand mt-0.5 size-5 shrink-0" />
-							<div>
-								<p className="font-semibold">{point.title}</p>
-								<p className="text-fd-muted-foreground mt-1 text-sm">
-									{point.body}
-								</p>
-							</div>
+						<li key={point.title}>
+							<Link href={point.href} className="group flex gap-4">
+								<point.icon className="text-brand mt-0.5 size-5 shrink-0" />
+								<div>
+									<p className="group-hover:text-brand flex items-center gap-1.5 font-semibold transition-colors">
+										{point.title}
+										<ArrowRight className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+									</p>
+									<p className="text-fd-muted-foreground mt-1 text-sm">
+										{point.body}
+									</p>
+								</div>
+							</Link>
 						</li>
 					))}
 				</ul>
