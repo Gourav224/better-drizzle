@@ -1,15 +1,19 @@
+import { flattenTree } from 'fumadocs-core/page-tree';
 import {
 	DocsBody,
 	DocsDescription,
 	DocsPage,
 	DocsTitle,
+	PageFooter,
 } from 'fumadocs-ui/layouts/docs/page';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { ComponentProps, ComponentType } from 'react';
 
+import { DialectNotice } from '@/components/dialect';
 import { JsonLd } from '@/components/json-ld';
+import { DIALECTS, type Dialect } from '@/lib/dialects';
 import { SITE_NAME, SITE_URL } from '@/lib/seo';
 import { source } from '@/lib/source';
 import { getMDXComponents } from '@/mdx-components';
@@ -17,6 +21,7 @@ import { getMDXComponents } from '@/mdx-components';
 type PageParams = { params: Promise<{ slug?: string[] }> };
 type DocsPageData = {
 	description?: string;
+	dialects?: Dialect[];
 	full?: boolean;
 	load(): Promise<{
 		body: ComponentType<{
@@ -45,7 +50,7 @@ export default async function Page(props: PageParams) {
 	if (page.slugs.length > 0) breadcrumb.push({ name: data.title, url });
 
 	return (
-		<DocsPage toc={toc} full={data.full}>
+		<DocsPage toc={toc} full={data.full} footer={{ enabled: false }}>
 			<JsonLd
 				data={{
 					'@context': 'https://schema.org',
@@ -78,6 +83,7 @@ export default async function Page(props: PageParams) {
 					],
 				}}
 			/>
+			{data.dialects && <DialectNotice dialects={data.dialects} />}
 			<DocsTitle>{data.title}</DocsTitle>
 			<DocsDescription>{data.description}</DocsDescription>
 			<DocsBody>
@@ -87,8 +93,45 @@ export default async function Page(props: PageParams) {
 					})}
 				/>
 			</DocsBody>
+			<DialectFooters url={page.url} />
 		</DocsPage>
 	);
+}
+
+/**
+ * Previous/next links skip pages for other databases: one footer per distinct
+ * result, picked by CSS from the selected database.
+ */
+function DialectFooters({ url }: { url: string }) {
+	const items = flattenTree(source.getPageTree().children);
+	const index = items.findIndex((item) => item.url === url);
+	const footers = new Map<
+		string,
+		{ views: string[]; items: ComponentProps<typeof PageFooter>['items'] }
+	>();
+
+	for (const view of ['all', ...DIALECTS] as const) {
+		const fits = (item: (typeof items)[number]) => {
+			if (view === 'all') return true;
+			const dialects = (
+				source.getNodePage(item)?.data as DocsPageData | undefined
+			)?.dialects;
+			return !dialects || dialects.includes(view);
+		};
+		const previous = items.findLast((item, i) => i < index && fits(item));
+		const next = items.find((item, i) => i > index && fits(item));
+		const key = `${previous?.url} ${next?.url}`;
+		const footer = footers.get(key);
+
+		if (footer) footer.views.push(view);
+		else footers.set(key, { views: [view], items: { previous, next } });
+	}
+
+	return [...footers].map(([key, footer]) => (
+		<div key={key} data-dialect-view={footer.views.join(' ')}>
+			<PageFooter items={footer.items} />
+		</div>
+	));
 }
 
 export function generateStaticParams() {

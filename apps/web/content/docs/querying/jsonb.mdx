@@ -4,6 +4,7 @@ description: PostgreSQL JSONB queries and partial updates through concise dot-pa
 icon: Braces
 seoTitle: 'PostgreSQL JSONB Filters and Mutations'
 seoDescription: 'Query and update PostgreSQL JSONB columns in Drizzle ORM with typed object paths, concise dot predicates, and partial jsonb_set updates.'
+dialects: [postgresql]
 ---
 
 JSONB columns are where type safety usually goes to die. Settings, feature flags, billing metadata, event payloads - the data is structured, but every query against it turns into a hand-written `sql` string with operators, path arrays, and casts that TypeScript cannot check.

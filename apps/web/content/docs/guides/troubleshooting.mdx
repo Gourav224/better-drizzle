@@ -92,6 +92,8 @@ Also check that `select` and `include` are not used at the same level: that thro
 
 ## Transactions
 
+<Dialect only="postgresql mysql">
+
 ### `TRANSACTIONS_UNSUPPORTED`
 
 **Message:** `The provided Drizzle client does not support transactions.`
@@ -99,6 +101,10 @@ Also check that `select` and `include` are not used at the same level: that thro
 **Why:** on PostgreSQL and MySQL, `client.transaction(...)` delegates to Drizzle's `db.transaction`. If the Drizzle client does not expose a `transaction` method, the call fails before starting. Some HTTP-style drivers do not support interactive transactions; if their `transaction` method exists but throws, you see the driver's own error instead.
 
 **Fix:** use a driver with transaction support (for example a pooled or WebSocket driver instead of an HTTP one) for code paths that need `client.transaction(...)`, relation writes, or `locks.transactionsOnly`. Relation writes (`connect`, `disconnect`, `set`) open an implicit transaction when none is active, so they are affected too.
+
+</Dialect>
+
+<Dialect only="sqlite">
 
 ### Transactions on SQLite behave differently
 
@@ -110,6 +116,8 @@ Also check that `select` and `include` are not used at the same level: that thro
 - Because statements run on the shared connection, queries issued through the raw `db` while a SQLite transaction is open run inside it.
 
 See [transactions](/docs/advanced/transactions).
+
+</Dialect>
 
 ### `AFTER_COMMIT_OUTSIDE_TRANSACTION` / `AFTER_ROLLBACK_OUTSIDE_TRANSACTION`
 
@@ -209,6 +217,8 @@ await client.$raw`select * from users where id = ${id}`;
 
 **Why:** the client has `raw: { requireComment: true }`. **Fix:** pass a `comment` in the raw call options.
 
+<Dialect only="mysql sqlite">
+
 ### `RAW_UNSUPPORTED_OPTION` for `comment`
 
 **Message:** `Raw option "comment" is not supported for dialect "sqlite".`
@@ -216,6 +226,8 @@ await client.$raw`select * from users where id = ${id}`;
 **Why:** raw SQL comments are prepended as `/* ... */` only on PostgreSQL. On SQLite and MySQL the comment is dropped. By default this only logs a warning; it throws when the client sets `raw: { unsupportedOptions: 'throw' }`.
 
 **Fix:** set `raw.unsupportedOptions` to `'ignore'` if you keep comments for portability, or omit `comment` on non-PostgreSQL clients. Note that `requireComment: true` still requires the option to be present even where it is dropped.
+
+</Dialect>
 
 ## Dialect-specific filters
 

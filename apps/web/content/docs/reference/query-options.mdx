@@ -72,6 +72,8 @@ Each relation key becomes a correlated subquery in the same statement's `ORDER B
 
 `findUnique` accepts the same query-argument shape as the other reads, but its `where` must pin one row: an equality on every primary key column, on a unique column, or on every column of a composite unique key. Otherwise it throws `UNIQUE_WHERE_REQUIRED` before any SQL runs. See [reads](/docs/querying/reads#findunique).
 
+<Dialect only="postgresql mysql">
+
 ## Row locks
 
 Locks control concurrent row access during reads.
@@ -94,6 +96,8 @@ await client.transaction(async (tx) => {
 - `skipLocked` and `noWait` are mutually exclusive.
 - `tables` is PostgreSQL-only.
 - General relation loading with `include` / relation `select` is intentionally rejected when `lock` is present.
+
+</Dialect>
 
 ## Filter operators
 

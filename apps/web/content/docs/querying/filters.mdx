@@ -182,6 +182,8 @@ await db
 	conditions, or to express the same condition on a field twice.
 </Callout>
 
+<Dialect only="postgresql">
+
 ## PostgreSQL arrays
 
 Native PostgreSQL array columns support exact equality, containment, overlap, emptiness, and total element-count filters. These filters are PostgreSQL-only.
@@ -200,6 +202,10 @@ Use `equals` (or pass an array directly) for exact equality, `containedBy` when 
 
 See [Array filters](/docs/querying/arrays) for every operator, the generated SQL, `NULL` semantics, and indexing.
 
+</Dialect>
+
+<Dialect only="postgresql">
+
 ## JSONB filters
 
 <Callout title="PostgreSQL only">
@@ -213,6 +219,8 @@ Typed paths inside PostgreSQL JSONB columns have their own API and limitations:
 		Filter typed scalar JSONB paths such as `'profile.age'`.
 	</Card>
 </Cards>
+
+</Dialect>
 
 ## Filtering by relations
 

@@ -5,6 +5,8 @@ import {
 } from 'fumadocs-mdx/config';
 import { z } from 'zod';
 
+import { DIALECTS } from './lib/dialects';
+
 export const docs = defineDocs({
 	dir: 'content/docs',
 	docs: {
@@ -13,6 +15,8 @@ export const docs = defineDocs({
 		schema: frontmatterSchema.extend({
 			seoTitle: z.string().optional(),
 			seoDescription: z.string().optional(),
+			// Databases the page applies to; omit when it applies to all.
+			dialects: z.array(z.enum(DIALECTS)).optional(),
 		}),
 	},
 });

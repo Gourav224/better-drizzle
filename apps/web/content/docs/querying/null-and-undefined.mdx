@@ -167,6 +167,8 @@ const orphans = await client.posts.findMany({
 
 See [Relations](/docs/querying/relations) for the full relation filter API.
 
+<Dialect only="postgresql">
+
 ## JSON `null` vs SQL `NULL`
 
 A JSONB column can hold SQL `NULL` (no document), and a document can hold JSON `null` at a path. They are filtered differently:
@@ -188,6 +190,8 @@ await client.accounts.findMany({
 A path filter set to `null` does not match documents where the key is missing. See [JSONB filters](/docs/querying/jsonb#json-null-values) for `not: null` and [missing keys](/docs/querying/jsonb#missing-keys-never-match).
 
 In `data`, `null` for the whole column writes SQL `NULL`. `null` values inside the object are serialized as JSON `null`.
+
+</Dialect>
 
 ## `undefined` and `null` in `data`
 

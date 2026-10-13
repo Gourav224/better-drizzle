@@ -67,6 +67,58 @@ bun add better-drizzle drizzle-orm@1.0.0-rc.4
 
 The schema file holds tables only. A small `users → posts` schema:
 
+<DialectTabs>
+
+<Tab value="PostgreSQL">
+
+```ts title="schema.ts"
+import { boolean, integer, pgTable, text } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	email: text('email').notNull().unique(),
+	name: text('name').notNull(),
+	active: boolean('active').notNull().default(true),
+});
+
+export const posts = pgTable('posts', {
+	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	authorId: integer('author_id')
+		.notNull()
+		.references(() => users.id),
+	title: text('title').notNull(),
+	published: boolean('published').notNull().default(false),
+});
+```
+
+</Tab>
+
+<Tab value="MySQL">
+
+```ts title="schema.ts"
+import { boolean, int, mysqlTable, text, varchar } from 'drizzle-orm/mysql-core';
+
+export const users = mysqlTable('users', {
+	id: int('id').primaryKey().autoincrement(),
+	email: varchar('email', { length: 255 }).notNull().unique(),
+	name: text('name').notNull(),
+	active: boolean('active').notNull().default(true),
+});
+
+export const posts = mysqlTable('posts', {
+	id: int('id').primaryKey().autoincrement(),
+	authorId: int('author_id')
+		.notNull()
+		.references(() => users.id),
+	title: text('title').notNull(),
+	published: boolean('published').notNull().default(false),
+});
+```
+
+</Tab>
+
+<Tab value="SQLite">
+
 ```ts title="schema.ts"
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
@@ -88,6 +140,10 @@ export const posts = sqliteTable('posts', {
 		.default(false),
 });
 ```
+
+</Tab>
+
+</DialectTabs>
 
 ## Define relations
 
@@ -121,6 +177,42 @@ export const relations = defineRelations(schema, (r) => ({
 
 Create a normal Drizzle client with `relations`, then wrap it once with `better(...)`:
 
+<DialectTabs>
+
+<Tab value="PostgreSQL">
+
+Install the `pg` driver too.
+
+```ts title="db.ts"
+import { better } from 'better-drizzle';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { relations } from './relations';
+
+const db = drizzle({ connection: process.env.DATABASE_URL!, relations });
+
+export const client = better(db);
+```
+
+</Tab>
+
+<Tab value="MySQL">
+
+Install the `mysql2` driver too.
+
+```ts title="db.ts"
+import { better } from 'better-drizzle';
+import { drizzle } from 'drizzle-orm/mysql2';
+import { relations } from './relations';
+
+const db = drizzle({ connection: { uri: process.env.DATABASE_URL! }, relations });
+
+export const client = better(db);
+```
+
+</Tab>
+
+<Tab value="SQLite">
+
 ```ts title="db.ts"
 import Database from 'bun:sqlite';
 import { better } from 'better-drizzle';
@@ -132,6 +224,10 @@ const db = drizzle({ client: sqlite, relations });
 
 export const client = better(db);
 ```
+
+</Tab>
+
+</DialectTabs>
 
 `better()` reads tables and relations from the Drizzle instance, so `relations` must be passed to `drizzle()`. Without it, `better()` throws `No tables found on the Drizzle instance.` Options such as `plugins` and `hooks` go in the optional second argument: `better(db, { plugins: [...] })`.
 

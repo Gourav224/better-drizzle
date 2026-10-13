@@ -236,12 +236,16 @@ await db.transaction(
 | `name` | label passed to transaction hooks; savepoints keep generated names |
 | `comment` | metadata passed to transaction hooks; not sent to the database, so it is reported as an unsupported option on every dialect |
 
+<Dialect only="sqlite">
+
 <Callout type="warn" title="SQLite ignores some options">
 	`isolationLevel` and `readOnly` are no-ops on SQLite, and `comment` is
 	reported as unsupported on every dialect. You can configure how
 	unsupported options behave (`'warn'` by default, or `'throw'` / `'ignore'`)
 	via the [client's `transaction` config](/docs/reference/client).
 </Callout>
+
+</Dialect>
 
 ## Raw SQL inside a transaction
 
@@ -271,6 +275,8 @@ await db.transaction(async (tx) => {
 ```
 
 Plugins and hooks can read `transactionContext` and `isInTransaction` throughout.
+
+<Dialect only="postgresql mysql">
 
 ## Locked reads
 
@@ -311,3 +317,6 @@ const client = better(db, {
 	},
 });
 ```
+
+</Dialect>
+

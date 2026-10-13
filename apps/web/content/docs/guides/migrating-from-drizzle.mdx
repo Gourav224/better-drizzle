@@ -14,6 +14,10 @@ Do not rewrite tables. better-drizzle reads tables and relations from the Drizzl
 
 ## 2. Wrap the existing Drizzle client once
 
+<DialectTabs>
+
+<Tab value="PostgreSQL">
+
 ```ts
 import { better } from 'better-drizzle';
 import { drizzle } from 'drizzle-orm/node-postgres'; // Or your driver
@@ -22,6 +26,36 @@ import { relations } from './relations';
 const db = drizzle({ client: connection, relations });
 export const client = better(db);
 ```
+
+</Tab>
+
+<Tab value="MySQL">
+
+```ts
+import { better } from 'better-drizzle';
+import { drizzle } from 'drizzle-orm/mysql2'; // Or your driver
+import { relations } from './relations';
+
+const db = drizzle({ client: connection, relations });
+export const client = better(db);
+```
+
+</Tab>
+
+<Tab value="SQLite">
+
+```ts
+import { better } from 'better-drizzle';
+import { drizzle } from 'drizzle-orm/bun-sqlite'; // Or your driver
+import { relations } from './relations';
+
+const db = drizzle({ client: connection, relations });
+export const client = better(db);
+```
+
+</Tab>
+
+</DialectTabs>
 
 ## 3. Move repetitive read paths first
 

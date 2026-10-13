@@ -109,7 +109,11 @@ An overridden column must exist and be a string or `buuid()` column, or `better(
 | `upsertMany` | fills every row; the id is insert-only, so `update: 'all'` and column lists never write it on conflict |
 | updates, deletes, reads | untouched |
 
+<Dialect only="mysql">
+
 On MySQL, `ON DUPLICATE KEY UPDATE` fires on any unique key, so `upsertMany` rejects rows that set a unique key other than its target, and the plugin always sets the id. With the plugin, MySQL `upsertMany` works when it targets the id on tables with no other unique key; otherwise use `upsert`. A single `upsert` by another unique key also leaves the native path, because `create` now carries the id, and runs as a read followed by a write.
+
+</Dialect>
 
 An explicit value always wins, including `null`. The plugin writes ids in the application, so they are known before the insert and appear in hook payloads after the plugin runs.
 
@@ -123,9 +127,13 @@ import { uuidv7 } from 'better-drizzle/uuid';
 const id = uuidv7(); // '0199d6f2-6c1e-7a3b-8f12-4c5d6e7f8a9b'
 ```
 
+<Dialect only="mysql sqlite">
+
 ## Binary storage with `buuid()`
 
 PostgreSQL's `uuid` type already stores 16 bytes. On MySQL and SQLite, a `char(36)` or `text` id takes more than twice that. `buuid()` stores the id as 16 bytes (`binary(16)` on MySQL, `blob` on SQLite) and is typed as `string`, so writes, filters, and results use the usual hyphenated form:
+
+<Dialect only="mysql">
 
 ```ts
 import { mysqlTable, varchar } from 'drizzle-orm/mysql-core';
@@ -137,6 +145,10 @@ export const users = mysqlTable('users', {
 });
 ```
 
+</Dialect>
+
+<Dialect only="sqlite">
+
 ```ts
 import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { buuid } from 'better-drizzle/uuid/sqlite';
@@ -147,6 +159,8 @@ export const users = sqliteTable('users', {
 });
 ```
 
+</Dialect>
+
 ```ts
 const user = await client.users.findUnique({
 	where: { id: '0199d6f2-6c1e-7a3b-8f12-4c5d6e7f8a9b' },
@@ -154,6 +168,8 @@ const user = await client.users.findUnique({
 ```
 
 The conversion lives in the column, so it also applies to raw Drizzle queries, including nested `db.query` relations. A filter value that is not a UUID throws before the query runs. Pattern filters (`contains`, `startsWith`, `endsWith`) compare bytes with text and match nothing; filter by the full id instead. Upper-case input is accepted and read back in lower case, so pass ids in lower case when the cache plugin keys reads by id.
+
+</Dialect>
 
 ## With zod and ata
 

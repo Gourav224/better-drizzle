@@ -4,6 +4,7 @@ import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import type { ReactNode } from 'react';
 
+import { DIALECT_SCRIPT } from '@/lib/dialects';
 import {
 	KEYWORDS,
 	SITE_DESCRIPTION,
@@ -82,6 +83,9 @@ export default function Layout({ children }: { children: ReactNode }) {
 			className={`${geistSans.variable} ${geistMono.variable}`}
 			suppressHydrationWarning
 		>
+			<head>
+				<script dangerouslySetInnerHTML={{ __html: DIALECT_SCRIPT }} />
+			</head>
 			<body className="flex min-h-screen flex-col">
 				<RootProvider>{children}</RootProvider>
 			</body>

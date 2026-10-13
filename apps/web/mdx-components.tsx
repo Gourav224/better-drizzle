@@ -6,6 +6,7 @@ import { TypeTable } from 'fumadocs-ui/components/type-table';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import type { MDXComponents } from 'mdx/types';
 
+import { Dialect, DialectTabs } from '@/components/dialect';
 import { ShinyCodeBlock } from '@/components/shiny-code-block';
 
 /**
@@ -20,6 +21,8 @@ export function getMDXComponents(components?: MDXComponents): MDXComponents {
 		Callout,
 		Card,
 		Cards,
+		Dialect,
+		DialectTabs,
 		Tab,
 		Tabs,
 		Step,

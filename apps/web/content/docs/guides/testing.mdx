@@ -10,6 +10,8 @@ better-drizzle has no test mode and no mock client. You test it the way it runs:
 
 The examples use `bun:test`. Vitest has the same `describe`, `test`, `expect`, `beforeEach`, and `describe.skipIf`, so the code carries over as is. Under Vitest on Node, use better-sqlite3 instead of `bun:sqlite`.
 
+<Dialect only="sqlite">
+
 ## In-memory SQLite
 
 Put the database setup in one helper that every test file imports. It opens a new `:memory:` database, applies the schema, and returns a client:
@@ -82,21 +84,51 @@ export const createTestDb = () => {
 
 SQLite leaves foreign keys off by default. Turn them on so tests fail on the same constraint violations as production.
 
+</Dialect>
+
 ## Applying the schema
 
 Any way that produces the right tables works. Pick one and keep it in the helper:
 
-- **Raw DDL**, as above. It is the fastest option, and you see exactly what the tests run against. The downside is that it can drift from your real migrations.
-- **Your drizzle-kit migrations.** Run the generated SQL files with Drizzle's migrator, so tests use the same schema history as production:
-
-  ```ts
-  import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
-
-  migrate(db, { migrationsFolder: 'drizzle' });
-  ```
-
-  On Node, import from `drizzle-orm/better-sqlite3/migrator`.
+- **Raw DDL** in the test helper. It is the fastest option, and you see exactly what the tests run against. The downside is that it can drift from your real migrations.
+- **Your drizzle-kit migrations.** Run the generated SQL files with Drizzle's migrator, so tests use the same schema history as production (see below).
 - **`drizzle-kit push`** against a database that lives longer than one test, such as a PostgreSQL test database. It cannot target a `:memory:` database, because that database only exists inside the test process.
+
+<DialectTabs>
+
+<Tab value="PostgreSQL">
+
+```ts
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+
+await migrate(db, { migrationsFolder: 'drizzle' });
+```
+
+</Tab>
+
+<Tab value="MySQL">
+
+```ts
+import { migrate } from 'drizzle-orm/mysql2/migrator';
+
+await migrate(db, { migrationsFolder: 'drizzle' });
+```
+
+</Tab>
+
+<Tab value="SQLite">
+
+```ts
+import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
+
+migrate(db, { migrationsFolder: 'drizzle' });
+```
+
+On Node, import from `drizzle-orm/better-sqlite3/migrator`.
+
+</Tab>
+
+</DialectTabs>
 
 ## A fresh client per test
 
@@ -196,7 +228,11 @@ Things to know:
 - An explicit `rollback()` does not fire `onTransactionError`.
 - Tests that share one database must run one after another. Do not mark them concurrent.
 
+<Dialect only="sqlite">
+
 For SQLite in memory, a fresh database per test is usually simpler than this pattern.
+
+</Dialect>
 
 ## Testing hooks
 
@@ -344,6 +380,8 @@ test('duplicate email is rejected', async () => {
 	codes you assert on are the ones callers actually see.
 </Callout>
 
+<Dialect only="postgresql">
+
 ## PostgreSQL-only features
 
 Some features cannot run on SQLite: [JSONB filters](/docs/querying/jsonb), [array filters](/docs/querying/arrays), and [row locks](/docs/advanced/locks). On SQLite they fail fast (`JSONB_QUERY_UNSUPPORTED`, `ARRAY_QUERY_UNSUPPORTED`, `LOCK_NOT_SUPPORTED`) instead of running a different query.
@@ -394,6 +432,8 @@ describe.skipIf(!DATABASE_URL)('posts (PostgreSQL)', () => {
 ```
 
 Apply the schema once before the suite runs, with `drizzle-kit push` or your migrations, or with DDL in `beforeAll`.
+
+</Dialect>
 
 ## Why not mock the client
 

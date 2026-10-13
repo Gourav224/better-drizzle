@@ -200,3 +200,45 @@ aside [data-search-full] {
 			'main' 1fr / minmax(0, 1fr);
 	}
 }
+
+/*
+ * Database filter (lib/dialects.ts). `<html data-dialect>` holds the selected
+ * database; without it, "All databases" is active.
+ * - [data-dialects]: content for the listed databases only
+ * - [data-dialect-page]: sidebar label of a page for the listed databases only
+ * - [data-dialect-view]: variant shown for the listed choices (`all` included)
+ * - [data-dialect-notice]: shown when the selected database is not listed
+ */
+html[data-dialect='postgresql']
+	[data-dialects]:not([data-dialects~='postgresql']),
+html[data-dialect='mysql'] [data-dialects]:not([data-dialects~='mysql']),
+html[data-dialect='sqlite'] [data-dialects]:not([data-dialects~='sqlite']),
+html[data-dialect='postgresql']
+	a:has([data-dialect-page]:not([data-dialect-page~='postgresql'])),
+html[data-dialect='mysql']
+	a:has([data-dialect-page]:not([data-dialect-page~='mysql'])),
+html[data-dialect='sqlite']
+	a:has([data-dialect-page]:not([data-dialect-page~='sqlite'])) {
+	display: none !important;
+}
+
+[data-dialect-view],
+[data-dialect-notice] {
+	display: none;
+}
+
+html:not([data-dialect]) [data-dialect-view~='all'],
+html[data-dialect='postgresql'] [data-dialect-view~='postgresql'],
+html[data-dialect='mysql'] [data-dialect-view~='mysql'],
+html[data-dialect='sqlite'] [data-dialect-view~='sqlite'] {
+	display: contents;
+}
+
+html[data-dialect='postgresql']
+	[data-dialect-notice]:not([data-dialect-notice~='postgresql']),
+html[data-dialect='mysql']
+	[data-dialect-notice]:not([data-dialect-notice~='mysql']),
+html[data-dialect='sqlite']
+	[data-dialect-notice]:not([data-dialect-notice~='sqlite']) {
+	display: flex;
+}

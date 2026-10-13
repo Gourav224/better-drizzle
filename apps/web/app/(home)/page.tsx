@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { FaDiscord, FaGithub } from 'react-icons/fa';
 import { SiMysql, SiPostgresql, SiSqlite } from 'react-icons/si';
 
+import { DialectLink } from '@/components/dialect-select';
 import { JsonLd } from '@/components/json-ld';
 import { DocsCode, DocsCodeTabs } from '@/components/landing/docs-code';
 import { Faq } from '@/components/landing/faq';
@@ -278,6 +279,7 @@ const DATABASES = [
 		icon: SiPostgresql,
 		iconClassName: 'text-[#336791] dark:text-[#6b9bd1]',
 		name: 'PostgreSQL',
+		dialect: 'postgresql' as const,
 		body: 'The full API, plus typed JSONB path filters and updates, native array operators, ILIKE, and row locks.',
 		href: '/docs/querying/jsonb',
 	},
@@ -285,6 +287,7 @@ const DATABASES = [
 		icon: SiMysql,
 		iconClassName: 'text-[#00758F] dark:text-[#5fb3c9]',
 		name: 'MySQL',
+		dialect: 'mysql' as const,
 		body: 'The full repository API, with native ON DUPLICATE KEY upserts and row locks. Batch writes return counts.',
 		href: '/docs/reference/support-matrix',
 	},
@@ -292,6 +295,7 @@ const DATABASES = [
 		icon: SiSqlite,
 		iconClassName: 'text-[#0F80CC] dark:text-[#4ea8e6]',
 		name: 'SQLite',
+		dialect: 'sqlite' as const,
 		body: 'The full API with RETURNING. A fast fit for local development, tests, and in-memory databases.',
 		href: '/docs/getting-started',
 	},
@@ -562,8 +566,9 @@ export default function HomePage() {
 				</div>
 				<div className="divide-fd-border border-fd-border divide-y border-y">
 					{DATABASES.map((database) => (
-						<Link
+						<DialectLink
 							key={database.name}
+							dialect={database.dialect}
 							href={database.href}
 							className="group flex items-center gap-5 py-5"
 						>
@@ -580,7 +585,7 @@ export default function HomePage() {
 								</p>
 							</div>
 							<ArrowRight className="text-fd-muted-foreground group-hover:text-fd-foreground size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
-						</Link>
+						</DialectLink>
 					))}
 				</div>
 			</section>
@@ -658,7 +663,10 @@ export default function HomePage() {
 				<ul className="flex flex-col gap-6">
 					{AGENT_POINTS.map((point) => (
 						<li key={point.title}>
-							<Link href={point.href} className="group flex gap-4">
+							<Link
+								href={point.href}
+								className="group flex gap-4"
+							>
 								<point.icon className="text-brand mt-0.5 size-5 shrink-0" />
 								<div>
 									<p className="group-hover:text-brand flex items-center gap-1.5 font-semibold transition-colors">

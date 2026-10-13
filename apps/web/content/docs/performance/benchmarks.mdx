@@ -109,6 +109,8 @@ The suite reports three views on purpose:
 	the API-parity group as the headline number - see [parity](/docs/performance/parity).
 </Callout>
 
+<Dialect only="postgresql">
+
 ## PostgreSQL JSONB
 
 Typed JSONB path filters have their own suite (`bun run bench:jsonb`) because they need a real PostgreSQL instance. It seeds 100,000 rows and asserts two things before timing:
@@ -119,3 +121,6 @@ Typed JSONB path filters have their own suite (`bun run bench:jsonb`) because th
 The typed form compiles to the same index scan as the hand-written SQL; PostgreSQL folds the parameterised path into the indexed expression. better-drizzle adds one `jsonb_typeof` filter that the hand-written version omits, which is what keeps a row with a string where its neighbours have a number from failing the cast.
 
 That suite is I/O bound, so the two sides land within run-to-run noise of each other. It exists to prove the query is the same, not to produce an overhead figure.
+
+</Dialect>
+

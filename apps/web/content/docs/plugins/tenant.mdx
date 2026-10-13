@@ -216,7 +216,11 @@ An upsert can hit a unique key that belongs to another tenant. The plugin never 
 | PostgreSQL, SQLite | native `ON CONFLICT DO UPDATE ... WHERE <tenant>`; a conflict with another tenant's row throws `TENANT_MISMATCH` and leaves the row unchanged | conflicts with other tenants' rows are skipped and not counted |
 | MySQL | always a scoped read, then a write: the read misses the other tenant's row, so the insert fails with the database duplicate-key error (`ER_DUP_ENTRY`, `isUniqueViolation(error)` is `true`) | `col = IF(<tenant matches>, VALUES(col), col)`: other tenants' rows stay unchanged, and `count` is the number of rows sent |
 
+<Dialect only="postgresql sqlite">
+
 On PostgreSQL and SQLite, an upsert whose `where` does not identify a key also runs as a read followed by a write, and a key of another tenant ends in the database's unique violation.
+
+</Dialect>
 
 ## Relation writes
 
@@ -286,6 +290,8 @@ await scoped.$raw(
 
 The opt-in reaches raw hooks in `rawOptions`. Tagged-template calls (`` scoped.$raw`...` ``) cannot pass options, so under `'deny'` they always throw on a scoped client; pass a `sql` object with options instead.
 
+<Dialect only="postgresql">
+
 ## PostgreSQL row-level security
 
 `rls: true` adds the database as a second line of defense. For each operation on a scoped client, the plugin runs `select set_config(<setting>, <value>, true)` for every active tenant column inside the operation's transaction:
@@ -312,6 +318,8 @@ tenant({ columns: 'organizationId', raw: 'set-local', rls: true });
 - With `raw: 'deny'` or `'allow'`, a raw call does not install settings by itself. Outside a transaction, the policy sees no tenant setting and hides the rows. Inside an existing transaction, a raw call can use a setting installed by an earlier scoped operation; switching to `$withoutTenant()` clears that setting before the raw call.
 
 `rls` on MySQL or SQLite throws `PLUGIN_DIALECT_UNSUPPORTED`; `raw: 'set-local'` without `rls` throws `INVALID_ARGS`.
+
+</Dialect>
 
 ## With other plugins
 

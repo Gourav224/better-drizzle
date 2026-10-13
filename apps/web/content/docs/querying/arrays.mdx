@@ -4,6 +4,7 @@ description: Typed PostgreSQL array filters and atomic mutations on native array
 icon: Brackets
 seoTitle: 'PostgreSQL Arrays for Drizzle ORM'
 seoDescription: 'Filter and atomically mutate PostgreSQL array columns in Drizzle ORM with typed membership, containment, length, append, replace, and unique-add operators.'
+dialects: [postgresql]
 ---
 
 PostgreSQL arrays are the simplest way to store tags, roles, permissions, or feature flags on a row. Querying them is another story: `@>`, `&&`, `<@`, `cardinality()`, and a parameter that has to be cast to the right array type. None of it is checked by TypeScript, and every call site gets it slightly differently.
