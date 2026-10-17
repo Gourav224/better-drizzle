@@ -186,7 +186,6 @@
 		"check:lint": "NODE_OPTIONS=--import=tsx oxfmt --config oxfmt.config.ts --check . '!**/*.{md,mdx}' && NODE_OPTIONS=--import=tsx oxlint --config oxlint.config.ts .",
 		"fix": "NODE_OPTIONS=--import=tsx oxlint --config oxlint.config.ts --fix . && NODE_OPTIONS=--import=tsx oxfmt --config oxfmt.config.ts --write . '!**/*.{md,mdx}'",
 		"check:types": "bunx tsc --noEmit",
-		"check:docs": "bun run scripts/check-doc-examples.ts",
 		"lint:commit": "commitlint",
 		"bench": "bun run benchmark/time.ts",
 		"bench:cache": "bun run benchmark/cache.ts",

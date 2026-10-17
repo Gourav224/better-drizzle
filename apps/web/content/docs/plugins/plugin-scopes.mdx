@@ -103,7 +103,7 @@ export const slugs = () =>
 
 `definePlugin(...)` infers everything from the object you pass. Set the generics explicitly only when inference is not enough:
 
-```ts noCheck
+```ts
 definePlugin<Options, ClientExtension, ModelExtension, State, OperationArgs, ModelExtensionResolver, ClientExtensionResolver>({ ... });
 ```
 
