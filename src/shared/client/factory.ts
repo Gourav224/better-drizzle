@@ -1132,6 +1132,12 @@ export const createBoundClient = <
 ): BoundClient<Schema, Meta, Plugins> => {
 	const client = Object.create(null) as Record<string, unknown>;
 
+	// Read by first-party integrations (`better-drizzle/auth`) that adapt the
+	// client to another library and need its dialect and table metadata.
+	Object.defineProperty(client, Symbol.for('better-drizzle/context'), {
+		value: context,
+	});
+
 	for (const tableName in context.tables) {
 		const delegate = applyModelExtensions(
 			context,

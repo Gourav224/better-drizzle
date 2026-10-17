@@ -23,7 +23,7 @@ type GithubRelease = {
 
 const RELEASES_API =
 	'https://api.github.com/repos/almeidazs/better-drizzle/releases?per_page=100';
-const NOTES_DIR = join(process.cwd(), '../../release-notes');
+const NOTES_DIR = join(process.cwd(), 'release-notes');
 const VERSION_FILE = /^\d+\.\d+\.\d+.*\.md$/;
 
 /** `v0.3.0` and `better-drizzle@0.1.1`; the discontinued scoped plugin tags are skipped. */

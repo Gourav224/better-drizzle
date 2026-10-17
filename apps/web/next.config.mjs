@@ -13,9 +13,9 @@ const config = {
 	reactStrictMode: true,
 	// Changelog drafts live at the repo root, outside the app.
 	outputFileTracingIncludes: {
-		'/changelog': ['../../release-notes/**'],
-		'/changelog.md': ['../../release-notes/**'],
-		'/changelog/rss.xml': ['../../release-notes/**'],
+		'/changelog': ['./release-notes/**'],
+		'/changelog.md': ['./release-notes/**'],
+		'/changelog/rss.xml': ['./release-notes/**'],
 	},
 	async redirects() {
 		return REDIRECTS.map(([source, destination]) => ({

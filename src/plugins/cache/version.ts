@@ -1,4 +1,6 @@
+import { version as current } from '../../version';
+
 /**
- * Your current version of [better-drizzle](https://npmjs.com/package/better-drizzle).
+ * Your current version of [better-drizzle/cache](https://npmjs.com/package/better-drizzle).
  */
-export const version = '0.3.0';
+export const version = current;

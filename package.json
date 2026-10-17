@@ -3,32 +3,11 @@
 	"version": "0.3.0",
 	"description": "Minimal, type-safe repository helpers for Drizzle ORM.",
 	"keywords": [
-		"bun",
 		"drizzle",
 		"drizzle-orm",
-		"multi-tenancy",
-		"mysql",
-		"nodejs",
 		"orm",
-		"pagination",
-		"plugins",
-		"postgres",
-		"postgresql",
-		"query-builder",
-		"relations",
 		"repository",
-		"repository-pattern",
-		"row-level-security",
-		"soft-delete",
-		"sql",
-		"sqlite",
-		"tenant",
-		"transactions",
-		"type-safe",
-		"typescript",
-		"upsert",
-		"uuid",
-		"zod"
+		"typescript"
 	],
 	"homepage": "https://better-drizzle.com/",
 	"license": "Apache-2.0",
@@ -68,6 +47,16 @@
 			"require": {
 				"types": "./dist/ata.d.cts",
 				"default": "./dist/ata.cjs"
+			}
+		},
+		"./auth": {
+			"import": {
+				"types": "./dist/auth.d.ts",
+				"default": "./dist/auth.js"
+			},
+			"require": {
+				"types": "./dist/auth.d.cts",
+				"default": "./dist/auth.cjs"
 			}
 		},
 		"./cache": {
@@ -197,10 +186,10 @@
 		"check:lint": "NODE_OPTIONS=--import=tsx oxfmt --config oxfmt.config.ts --check . '!**/*.{md,mdx}' && NODE_OPTIONS=--import=tsx oxlint --config oxlint.config.ts .",
 		"fix": "NODE_OPTIONS=--import=tsx oxlint --config oxlint.config.ts --fix . && NODE_OPTIONS=--import=tsx oxfmt --config oxfmt.config.ts --write . '!**/*.{md,mdx}'",
 		"check:types": "bunx tsc --noEmit",
-		"check:docs": "bun run scripts/check-doc-examples.ts",
 		"lint:commit": "commitlint",
 		"bench": "bun run benchmark/time.ts",
 		"bench:cache": "bun run benchmark/cache.ts",
+		"bench:auth": "bun run benchmark/auth.ts",
 		"bench:all": "bun run benchmark/time.ts && bun run benchmark/full.ts && bun run benchmark/memory.ts",
 		"bench:full": "bun run benchmark/full.ts",
 		"bench:memory": "bun run benchmark/memory.ts",
@@ -208,7 +197,7 @@
 		"docs:dev": "bun run --filter @better-drizzle/web dev",
 		"docs:build": "bun run --filter @better-drizzle/web build",
 		"pack": "bun run build && npm pack --dry-run --ignore-scripts",
-		"test": "bun test tests/core tests/rules tests/eslint tests/timestamps tests/uuid tests/soft-delete tests/tenant tests/zod tests/ata tests/cache",
+		"test": "bun test tests/core tests/rules tests/eslint tests/timestamps tests/uuid tests/soft-delete tests/tenant tests/zod tests/ata tests/auth tests/cache",
 		"test:mysql": "bun test tests/core/where.mysql.test.ts",
 		"test:databases": "bun test .pg.test.ts .mysql.test.ts .redis.test.ts",
 		"test:integration": "bun test tests/core/integration",
@@ -223,12 +212,16 @@
 		"bench:validation-e2e": "bun run benchmark/validation-e2e.ts"
 	},
 	"devDependencies": {
+		"@better-auth/core": "1.7.10",
+		"@better-auth/drizzle-adapter": "1.7.10",
+		"@better-auth/test-utils": "1.7.10",
 		"@commitlint/config-conventional": "^21.1.0",
 		"@types/bun": "latest",
 		"@types/estree": "^1.0.8",
 		"@types/pg": "^8.20.0",
 		"@typescript-eslint/parser": "^8.38.0",
 		"ata-validator": "^1.30.1",
+		"better-auth": "1.7.10",
 		"commitlint": "^21.1.0",
 		"drizzle-orm": "1.0.0-rc.4",
 		"eslint": "^9.31.0",
@@ -246,8 +239,10 @@
 		"zod": "^4.4.3"
 	},
 	"peerDependencies": {
+		"@better-auth/drizzle-adapter": "^1.7.0",
 		"@typescript-eslint/parser": "^8",
 		"ata-validator": "^1.30.1",
+		"better-auth": "^1.7.0",
 		"drizzle-orm": ">=1.0.0-rc.4 <1.0.0-rc.5",
 		"eslint": "^9",
 		"typescript": "^5",
@@ -264,6 +259,12 @@
 			"optional": true
 		},
 		"ata-validator": {
+			"optional": true
+		},
+		"better-auth": {
+			"optional": true
+		},
+		"@better-auth/drizzle-adapter": {
 			"optional": true
 		}
 	},

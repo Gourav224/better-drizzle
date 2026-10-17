@@ -1,0 +1,442 @@
+---
+title: Better Auth
+description: Use better-drizzle as the Better Auth database adapter, so auth reads and writes run through your plugins, hooks, and errors.
+icon: KeyRound
+seoTitle: 'Better Auth Adapter for better-drizzle'
+seoDescription: 'Use better-drizzle as the Better Auth database adapter on Drizzle ORM: auth reads and writes run through plugins, hooks, scopes, and normalized errors.'
+---
+
+<Since version="0.4.0" />
+
+`better-drizzle/auth` is a [Better Auth](https://www.better-auth.com) database adapter built on your better-drizzle client. It plays the same role as Better Auth's built-in Drizzle, Prisma, and MongoDB adapters, but every auth query goes through the client you already configured:
+
+- **Plugins** see auth writes: [timestamps](/docs/plugins/timestamps) stamps sessions, [uuid](/docs/plugins/uuid) generates ids, [soft delete](/docs/plugins/soft-delete) hides deleted users from sign-in, [cache](/docs/plugins/cache) invalidates after session writes, and [zod](/docs/plugins/zod), [ata](/docs/plugins/ata), and [rules](/docs/plugins/rules) validate them.
+- **Hooks and metadata** run for auth operations: `beforeQuery`, `afterQuery`, `onError`, transaction hooks, and `$withContext()` metadata.
+- **Errors** arrive as [`BetterDrizzleError`](/docs/reference/errors) with the code, constraint, and table, not as raw driver errors.
+- **Joins** load through the batched relation loader, one query per relation.
+
+The adapter reads the dialect from the client and the tables and relations from `drizzle({ relations })`, so it needs no `provider` or `schema` option.
+
+<Callout type="warn" title="Experimental">
+	The Better Auth adapter is experimental in `0.4.x`. Its options can change
+	in a patch release. Pin an exact version if you depend on it. See
+	[stability](/docs/reference/stability).
+</Callout>
+
+## Install
+
+<Tabs items={['npm', 'pnpm', 'yarn', 'bun']}>
+
+<Tab value="npm">
+
+```bash
+npm install better-drizzle better-auth
+npm install -D @better-auth/drizzle-adapter
+```
+
+</Tab>
+
+<Tab value="pnpm">
+
+```bash
+pnpm add better-drizzle better-auth
+pnpm add -D @better-auth/drizzle-adapter
+```
+
+</Tab>
+
+<Tab value="yarn">
+
+```bash
+yarn add better-drizzle better-auth
+yarn add -D @better-auth/drizzle-adapter
+```
+
+</Tab>
+
+<Tab value="bun">
+
+```bash
+bun add better-drizzle better-auth
+bun add -D @better-auth/drizzle-adapter
+```
+
+</Tab>
+
+</Tabs>
+
+`better-auth` `^1.7.0` is an optional peer dependency of better-drizzle, so only apps that import `better-drizzle/auth` install it. `@better-auth/drizzle-adapter` is needed only by `npx auth generate`, which uses its Drizzle schema generator.
+
+## Setup
+
+Pass the better-drizzle client to `adapter()` and use the result as `database`:
+
+```ts title="auth.ts"
+import { betterAuth } from 'better-auth';
+import { adapter } from 'better-drizzle/auth';
+
+import { db } from './db';
+
+export const auth = betterAuth({
+	database: adapter(db),
+	emailAndPassword: { enabled: true },
+});
+```
+
+`adapter` is also exported as `betterDrizzleAdapter`, for codebases that prefer an explicit name next to other adapters.
+
+### Generate the schema
+
+Better Auth needs its tables (`user`, `session`, `account`, `verification`, plus the tables of the Better Auth plugins you enable). With `auth.ts` in place, the Better Auth CLI writes them as a Drizzle schema:
+
+```bash
+npx auth@latest generate --output src/db/auth-schema.ts
+```
+
+The file holds the tables and an `authRelations` part built with `defineRelationsPart`, the same output as Better Auth's own Drizzle adapter for Drizzle ORM 1.x. For PostgreSQL it looks like this:
+
+<Accordions>
+<Accordion title="auth-schema.ts (PostgreSQL)">
+
+```ts title="auth-schema.ts"
+import { defineRelationsPart } from 'drizzle-orm';
+import { boolean, index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+
+export const user = pgTable('user', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	email: text('email').notNull().unique(),
+	emailVerified: boolean('email_verified').default(false).notNull(),
+	image: text('image'),
+	createdAt: timestamp('created_at').notNull(),
+	updatedAt: timestamp('updated_at')
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
+
+export const session = pgTable(
+	'session',
+	{
+		id: text('id').primaryKey(),
+		expiresAt: timestamp('expires_at').notNull(),
+		token: text('token').notNull().unique(),
+		createdAt: timestamp('created_at').notNull(),
+		updatedAt: timestamp('updated_at')
+			.$onUpdate(() => new Date())
+			.notNull(),
+		ipAddress: text('ip_address'),
+		userAgent: text('user_agent'),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+	},
+	(table) => [index('session_userId_idx').on(table.userId)],
+);
+
+export const account = pgTable(
+	'account',
+	{
+		id: text('id').primaryKey(),
+		accountId: text('account_id').notNull(),
+		providerId: text('provider_id').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		accessToken: text('access_token'),
+		refreshToken: text('refresh_token'),
+		idToken: text('id_token'),
+		accessTokenExpiresAt: timestamp('access_token_expires_at'),
+		refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+		scope: text('scope'),
+		password: text('password'),
+		createdAt: timestamp('created_at').notNull(),
+		updatedAt: timestamp('updated_at')
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(table) => [index('account_userId_idx').on(table.userId)],
+);
+
+export const verification = pgTable(
+	'verification',
+	{
+		id: text('id').primaryKey(),
+		identifier: text('identifier').notNull(),
+		value: text('value').notNull(),
+		expiresAt: timestamp('expires_at').notNull(),
+		createdAt: timestamp('created_at').notNull(),
+		updatedAt: timestamp('updated_at')
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(table) => [index('verification_identifier_idx').on(table.identifier)],
+);
+
+export const authRelations = defineRelationsPart(
+	{ account, session, user, verification },
+	(r) => ({
+		account: {
+			user: r.one.user({ from: r.account.userId, to: r.user.id }),
+		},
+		session: {
+			user: r.one.user({ from: r.session.userId, to: r.user.id }),
+		},
+		user: {
+			accounts: r.many.account({ from: r.user.id, to: r.account.userId }),
+			sessions: r.many.session({ from: r.user.id, to: r.session.userId }),
+		},
+	}),
+);
+```
+
+</Accordion>
+</Accordions>
+
+Apply it with your usual migrations (`drizzle-kit generate` and `migrate`, or `drizzle-kit push`). Better Auth's own `npx auth migrate` works only with its Kysely adapter.
+
+Two `generate` options change the output, and only the output: `camelCase: true` keeps camelCase table and column names instead of snake_case, and `schemaName` puts the PostgreSQL tables in a `pgSchema()`.
+
+### Register the tables and relations
+
+better-drizzle reads tables and relations from `drizzle({ relations })`. A table missing from it is invisible to the adapter. `defineRelationsPart` only lists tables that have relations (here `verification` has none), so spread it over a `defineRelations` call that covers every table:
+
+<DialectTabs>
+
+<Tab value="PostgreSQL">
+
+```ts title="db.ts"
+import { better } from 'better-drizzle';
+import { defineRelations } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
+
+import * as authSchema from './auth-schema';
+import * as schema from './schema';
+
+const { authRelations, ...authTables } = authSchema;
+const relations = {
+	...defineRelations({ ...schema, ...authTables }),
+	...authRelations,
+};
+
+export const db = better(
+	drizzle(process.env.DATABASE_URL ?? '', { relations }),
+);
+```
+
+</Tab>
+
+<Tab value="MySQL">
+
+```ts title="db.ts"
+import { better } from 'better-drizzle';
+import { defineRelations } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/mysql2';
+
+import * as authSchema from './auth-schema';
+import * as schema from './schema';
+
+const { authRelations, ...authTables } = authSchema;
+const relations = {
+	...defineRelations({ ...schema, ...authTables }),
+	...authRelations,
+};
+
+export const db = better(
+	drizzle(process.env.DATABASE_URL ?? '', { relations }),
+);
+```
+
+</Tab>
+
+<Tab value="SQLite">
+
+```ts title="db.ts"
+import { Database } from 'bun:sqlite';
+import { better } from 'better-drizzle';
+import { defineRelations } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+
+import * as authSchema from './auth-schema';
+import * as schema from './schema';
+
+const { authRelations, ...authTables } = authSchema;
+const relations = {
+	...defineRelations({ ...schema, ...authTables }),
+	...authRelations,
+};
+
+export const db = better(
+	drizzle({ client: new Database('app.db'), relations }),
+);
+```
+
+</Tab>
+
+</DialectTabs>
+
+If your app relations already use `defineRelations(schema, (r) => ...)`, keep that call and spread `authRelations` after it; the auth tables still need to be in the object passed to `defineRelations`.
+
+## Options
+
+Every option is optional.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `transaction` | `true` | run multi-step Better Auth writes (sign-up creates a user and an account) in one `db.transaction()`; nested calls use savepoints |
+| `meta` | `undefined` | metadata merged into every auth operation, like [`$withContext()`](/docs/guides/multi-tenancy#scope-default-metadata-with-withcontext) |
+| `cache` | `false` | let auth reads use the [cache](/docs/plugins/cache) plugin; auth writes invalidate either way |
+| `usePlural` | detected | table keys are plural (`users`, `sessions`); `true` when the client has a `users` table and no `user` table |
+| `debugLogs` | `false` | Better Auth adapter debug logs |
+| `camelCase` | `false` | `npx auth generate` only: camelCase table and column names |
+| `schemaName` | `undefined` | `npx auth generate` only: PostgreSQL schema for the generated tables |
+
+```ts
+import { betterAuth } from 'better-auth';
+import { adapter } from 'better-drizzle/auth';
+
+export const auth = betterAuth({
+	database: adapter(client, {
+		meta: { source: 'better-auth' },
+		transaction: true,
+	}),
+});
+```
+
+Better Auth's own `modelName` and `fields` options keep working: the adapter resolves a model by table key or database table name, and fields by column key.
+
+## How auth calls map
+
+Each Better Auth call becomes one delegate call on the table, so it runs the same plugin pipeline, hooks, and scopes as your own code:
+
+| Better Auth | better-drizzle |
+| --- | --- |
+| `create` | `create({ data, select })` |
+| `findOne` | `findFirst({ where, select / include })` |
+| `findMany` | `findMany({ where, take, skip, orderBy, select / include })` |
+| `count` | `count({ where })` |
+| `update` | `update({ where, data })`, which changes at most one row |
+| `updateMany`, `deleteMany` | `updateMany` / `deleteMany`, returning the count |
+| `delete` | `delete({ where })` |
+| `consumeOne` | `delete({ where })` returning the row; MySQL locks it first with `FOR UPDATE` |
+| `incrementOne` | `update` with `{ increment }`; the `where` guard is rechecked in the same statement |
+| `transaction` | `db.transaction()` |
+
+Where clauses map to [filters](/docs/querying/filters): `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `in`, `not_in`, `contains`, `starts_with`, and `ends_with`, with `mode: 'insensitive'` and `null` checks. Pattern operators match `%` and `_` literally. A where field or `select` field that is not a column throws `INVALID_ARGS` instead of being ignored.
+
+## Joins
+
+With `advanced.database.joins: true`, Better Auth asks for related rows in the same call, for example the user of a session. The adapter turns each join into an `include` on the [batched relation loader](/docs/querying/relations), so reading a session with its user is two queries, with no `db.query` call:
+
+```ts
+import { betterAuth } from 'better-auth';
+import { adapter } from 'better-drizzle/auth';
+
+export const auth = betterAuth({
+	advanced: { database: { joins: true } },
+	database: adapter(client),
+});
+```
+
+A join needs the matching relation in `drizzle({ relations })`, which `authRelations` provides. When a relation is missing, the call throws `INVALID_ARGS` naming the two tables and columns, instead of falling back to separate queries without a warning. Without `joins`, Better Auth loads related rows with separate adapter calls and no relation is required.
+
+## Plugins
+
+Auth operations run through every plugin on the client.
+
+### Timestamps and UUID ids
+
+[`timestamps()`](/docs/plugins/timestamps) sets `createdAt` and `updatedAt` on auth rows from its own clock. With [`uuids()`](/docs/plugins/uuid) on a model's `id`, the adapter leaves the id to the plugin instead of Better Auth's random string, so auth rows get the same UUIDv7 ids as the rest of your data:
+
+```ts
+import { better } from 'better-drizzle';
+import { adapter } from 'better-drizzle/auth';
+import { timestamps } from 'better-drizzle/timestamps';
+import { uuids } from 'better-drizzle/uuid';
+
+const client = better(db, { plugins: [uuids(), timestamps()] });
+
+export const database = adapter(client);
+```
+
+Ids Better Auth derives itself (single-use records) and `advanced.database.generateId` still win over the plugin.
+
+### Soft delete
+
+With [`softDelete()`](/docs/plugins/soft-delete) and a `deletedAt` column on `user`, a deleted user is hidden from every auth read, so sign-in and session lookups treat it as missing. Deleting a user through Better Auth (`deleteUser`) becomes a soft delete. Sessions and accounts are deleted for real unless they also have the column.
+
+### Tenant
+
+Auth tables are shared by every tenant. Add them to `global` in [`tenant()`](/docs/plugins/tenant):
+
+```ts
+import { better } from 'better-drizzle';
+import { tenant } from 'better-drizzle/tenant';
+
+const client = better(db, {
+	plugins: [
+		tenant({
+			columns: 'organizationId',
+			global: ['user', 'session', 'account', 'verification'],
+		}),
+	],
+});
+```
+
+If an auth table is still scoped, Better Auth fails to initialize with `INVALID_ARGS` naming the table, instead of returning nothing for every user without a tenant. Passing a `$withoutTenant({ reason })` client to `adapter()` is allowed.
+
+### Cache
+
+Sessions change on every sign-in and refresh, so auth reads skip the [cache](/docs/plugins/cache) by default. Writes still invalidate it, so your own cached reads of `session` or `user` stay correct. Set `cache: true` to cache auth reads with the plugin's settings.
+
+### Validation and rules
+
+[zod](/docs/plugins/zod) and [ata](/docs/plugins/ata) validate auth writes like any other write, and [rules](/docs/plugins/rules) apply to them. Validation must accept the values Better Auth writes, including fields added by its plugins and `additionalFields`.
+
+## Hooks, metadata, and transactions
+
+Client hooks run for auth operations, and `meta` tells them apart from your own calls:
+
+```ts
+import { better } from 'better-drizzle';
+import { adapter } from 'better-drizzle/auth';
+
+const client = better(db, {
+	hooks: {
+		afterQuery({ action, meta, table }) {
+			if (meta?.source === 'better-auth') console.log('auth read', table, action);
+		},
+	},
+});
+
+export const database = adapter(client, { meta: { source: 'better-auth' } });
+```
+
+With `transaction: true`, Better Auth's multi-step writes run in `db.transaction()`, so [transaction hooks](/docs/advanced/transactions) and `afterCommit` callbacks fire for them, and the cache plugin invalidates on commit.
+
+## Errors
+
+Every adapter failure is a `BetterDrizzleError`, including driver errors that a client without hooks would otherwise pass through untouched. A duplicate email is a `DATABASE_ERROR` that [`isUniqueViolation()`](/docs/reference/errors) recognizes, with `constraint` and `table` set. Better Auth endpoints still answer with their own API errors; the client `onError` hook receives the `BetterDrizzleError` of a failed delegate call for logging.
+
+## Compared with the Drizzle adapter
+
+| | `better-drizzle/auth` | `@better-auth/drizzle-adapter` |
+| --- | --- | --- |
+| Setup | `adapter(db)` | `drizzleAdapter(db, { provider, schema })` |
+| Plugins, hooks, metadata | run for auth calls | bypassed |
+| Errors | `BetterDrizzleError` | raw driver errors |
+| Joins | batched loader, one query per relation | `db.query` |
+| Missing join relation | `INVALID_ARGS` | logs and falls back |
+| Unknown where field | `INVALID_ARGS` | `BetterAuthError` |
+| Transactions | on by default | off by default |
+| MySQL insert read-back | by primary key or `insertId` | id, unique fields, or every field |
+| Schema generation | same generator | Drizzle ORM 1.x generator |
+
+On SQLite, both adapters return the same shapes for the hot auth calls (session with user join, create session, update session, delete expired sessions); `bun run bench:auth` checks the results and then measures both.
+
+## Database notes
+
+- **PostgreSQL**: `generateId: 'uuid'` relies on a database default for `id` (`uuid().defaultRandom()`), as with the Drizzle adapter. `string[]` and `number[]` fields use native arrays.
+- **MySQL**: there is no `RETURNING`, so writes read the row back by primary key. Equality follows the column collation; the default MySQL collations are case-insensitive, so use a `_bin` or `_cs` collation where Better Auth needs case-sensitive matches (the Drizzle adapter behaves the same).
+- **SQLite**: date columns can be `integer({ mode: 'timestamp_ms' })` or text; text dates are written as ISO 8601 and read back as `Date`.
+
+The adapter passes Better Auth's adapter test suite (`@better-auth/test-utils`) on SQLite, PostgreSQL, and MySQL, including the transaction, join, UUID, numeric id, case-insensitive, and full sign-up and sign-in flows.
