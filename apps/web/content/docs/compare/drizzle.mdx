@@ -1,0 +1,161 @@
+---
+title: better-drizzle vs Drizzle
+description: What the wrapper adds on top of raw Drizzle, what it costs, and when raw Drizzle is still the better tool.
+icon: Scale
+seoTitle: 'better-drizzle vs Drizzle ORM'
+seoDescription: 'Compare better-drizzle with raw Drizzle ORM: repository API, relation loading, pagination, plugins, measured overhead, and when to keep raw Drizzle.'
+---
+
+better-drizzle is not a replacement for Drizzle. It wraps the Drizzle client you already have and adds a repository API per table. Your schema, driver, and raw queries stay the same, and both clients share one connection.
+
+## Short answer
+
+Use better-drizzle when most of your database code is application CRUD: lookups, lists with relations, pagination, relation writes, and the same cross-cutting rules (timestamps, soft delete, tenant isolation) on every query.
+
+Keep raw Drizzle for queries that are really SQL: reports with `GROUP BY`, window functions, CTEs, `INSERT ... SELECT`, or a hot path you have profiled. You can do both in the same codebase, and in the same transaction.
+
+## What better-drizzle adds
+
+| Need | Raw Drizzle | better-drizzle |
+| --- | --- | --- |
+| Point lookups | `select ... limit 1`, then `rows[0] ?? null` | `findUnique`, `findFirst`, plus `.throw()` when the row is required |
+| Nested relations | `db.query` or joins and manual stitching | `include` / `select` at any depth, with per-level `where`, `orderBy`, `take`, `skip` |
+| Relation filters | `exists` subqueries by hand | `some`, `every`, `none`, `is`, `isNot` |
+| Relation counts | correlated subqueries | `include: { _count: { select: { posts: true } } }` |
+| Pagination | two queries and the page math | `paginate()` and `cursor()` return `{ data, pagination }` |
+| Relation writes | inserts and deletes on the junction table | `connect`, `disconnect`, `set`, in an implicit transaction |
+| Bulk writes | builders per dialect | `createMany`, `upsertMany`, `updateEach` (one `UPDATE ... CASE`) |
+| Atomic updates | `sql` expressions | `{ increment: 1 }`, `{ toggle: true }`, array and JSONB path updates on PostgreSQL |
+| Transactions | `db.transaction` | savepoints for nested calls, retries, `afterCommit` / `afterRollback` |
+| Cross-cutting rules | repeated in every query | [hooks](/docs/advanced/hooks) and [plugins](/docs/plugins/overview): timestamps, soft delete, tenant, cache, Zod, UUID, guardrails |
+| Errors | driver-specific error shapes | `BetterDrizzleError` with a stable `code`, and helpers like `isUniqueViolation` |
+
+## Side by side
+
+### A row with one related row
+
+```ts tab="better-drizzle" tab-group="orm"
+const post = await client.posts.findUnique({
+	where: { id },
+	include: { author: { select: { name: true } } },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { eq, getColumns } from 'drizzle-orm';
+
+const [post = null] = await db
+	.select({ ...getColumns(posts), author: { name: users.name } })
+	.from(posts)
+	.innerJoin(users, eq(users.id, posts.authorId))
+	.where(eq(posts.id, id))
+	.limit(1);
+```
+
+### Filter by related rows
+
+```ts tab="better-drizzle" tab-group="orm"
+const authors = await client.users.findMany({
+	where: { active: true, posts: { some: { published: true } } },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { and, eq, exists } from 'drizzle-orm';
+
+const authors = await db
+	.select()
+	.from(users)
+	.where(
+		and(
+			eq(users.active, true),
+			exists(
+				db
+					.select({ id: posts.id })
+					.from(posts)
+					.where(
+						and(eq(posts.authorId, users.id), eq(posts.published, true)),
+					),
+			),
+		),
+	);
+```
+
+### Count and exists
+
+```ts tab="better-drizzle" tab-group="orm"
+const total = await client.posts.count({ where: { published: true } });
+const taken = await client.users.exists({ where: { email } });
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { count, eq } from 'drizzle-orm';
+
+const [{ total }] = await db
+	.select({ total: count() })
+	.from(posts)
+	.where(eq(posts.published, true));
+const taken =
+	(
+		await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, email))
+			.limit(1)
+	).length > 0;
+```
+
+A full example with pagination, per-parent limits, and relation counts is on [Why better-drizzle](/docs/why#the-same-feature-both-ways).
+
+## What it costs
+
+The numbers come from the [API-parity benchmarks](/docs/performance/benchmarks): raw Drizzle does the same work and returns the same shape, and both sides run in the same sampling window on SQLite in-memory.
+
+| Area | Overhead vs raw Drizzle |
+| --- | --- |
+| Reads | within ~12%, most within 9% |
+| Prepared reads | within ~4% of Drizzle's own prepared statements |
+| Writes | within ~5% |
+| Transactions | within ~9% |
+| Relation graph (users → posts → comments) | **9.5× faster** than `db.query` (414.30 µs vs 3.94 ms) |
+
+Memory is mixed: single reads use less heap, while mixed-read batches and transactions use more. See [benchmark parity](/docs/performance/parity) for how the pairs are kept fair.
+
+## When raw Drizzle is the better tool
+
+- **Reports and analytics**: `groupBy`, `sum`, `avg`, window functions, CTEs. Delegates only have `count`, `exists`, and `_count`.
+- **Set-based statements**: `INSERT ... SELECT`, `UPDATE ... FROM`.
+- **SQL the API does not model**: expressions in `ORDER BY`, full-text ranking, extension functions.
+- **A profiled hot path** where a few microseconds matter.
+
+See [limitations](/docs/guides/limitations) for the full list.
+
+## You can always drop down
+
+The client you pass to `better()` keeps working, and the better-drizzle client has raw SQL on it:
+
+```ts
+import { count } from 'drizzle-orm';
+
+const client = better(db);
+
+// raw Drizzle, same connection
+const stats = await db
+	.select({ authorId: posts.authorId, total: count() })
+	.from(posts)
+	.groupBy(posts.authorId);
+
+// raw SQL inside a better-drizzle transaction
+await client.transaction(async (tx) => {
+	await tx.posts.update({ where: { id }, data: { published: true } });
+	await tx.$executeRaw`update stats set published = published + 1`;
+});
+```
+
+`where` also accepts a Drizzle `sql` fragment, and [`client.users.$where()`](/docs/querying/filters#reusing-a-filter-in-raw-drizzle) turns a better-drizzle filter into a Drizzle condition for your own queries.
+
+## Next steps
+
+- [Getting started](/docs/getting-started)
+- [Migrating from raw Drizzle](/docs/guides/migrating-from-drizzle), one call site at a time
+- [better-drizzle vs Prisma](/docs/compare/prisma)

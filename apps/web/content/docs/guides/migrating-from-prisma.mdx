@@ -1,0 +1,200 @@
+---
+title: Migrating from Prisma
+description: Move a Prisma project to Drizzle and better-drizzle step by step, keeping the same database and most of your query shapes.
+icon: ArrowRightLeft
+seoTitle: 'Migrating from Prisma to better-drizzle'
+seoDescription: 'Step-by-step guide to move from Prisma to Drizzle ORM with better-drizzle: schema, relations, client setup, query mapping, transactions, errors, and hooks.'
+---
+
+The database stays the same. You replace the Prisma schema with Drizzle tables, wrap the Drizzle client with `better()`, and move queries over. Most query shapes carry over with small changes. See [better-drizzle vs Prisma](/docs/compare/prisma) for the full API mapping.
+
+## 1. Install
+
+```bash
+bun add better-drizzle drizzle-orm@1.0.0-rc.4 pg
+bun add -d drizzle-kit
+```
+
+Use `mysql2` or your SQLite driver instead of `pg` for other databases. better-drizzle supports Drizzle ORM `>=1.0.0-rc.4 <1.0.0-rc.5`.
+
+## 2. Get a Drizzle schema
+
+The quickest path is to introspect the database Prisma already migrated:
+
+```bash
+bunx drizzle-kit pull
+```
+
+This writes a `schema.ts` with your tables and a `relations.ts`. Review both: keep the table and column names Prisma created, and check that the relations use `defineRelations`.
+
+To write the schema by hand, translate each model. Prisma creates tables with the model name (`User`) unless you used `@@map`:
+
+```prisma title="schema.prisma"
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String
+  posts     Post[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Post {
+  id        Int     @id @default(autoincrement())
+  title     String
+  published Boolean @default(false)
+  author    User    @relation(fields: [authorId], references: [id])
+  authorId  Int
+}
+```
+
+```ts title="schema.ts"
+import { boolean, integer, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('User', {
+	id: serial('id').primaryKey(),
+	email: text('email').notNull().unique(),
+	name: text('name').notNull(),
+	createdAt: timestamp('createdAt', { precision: 3 }).notNull().defaultNow(),
+	updatedAt: timestamp('updatedAt', { precision: 3 }).notNull().defaultNow(),
+});
+
+export const posts = pgTable('Post', {
+	id: serial('id').primaryKey(),
+	title: text('title').notNull(),
+	published: boolean('published').notNull().default(false),
+	authorId: integer('authorId')
+		.notNull()
+		.references(() => users.id),
+});
+```
+
+Relation fields (`posts`, `author`) are not columns. They move to `defineRelations`:
+
+```ts title="relations.ts"
+import { defineRelations } from 'drizzle-orm';
+import * as schema from './schema';
+
+export const relations = defineRelations(schema, (r) => ({
+	users: {
+		posts: r.many.posts(),
+	},
+	posts: {
+		author: r.one.users({ from: r.posts.authorId, to: r.users.id }),
+	},
+}));
+```
+
+A Prisma implicit many-to-many uses a hidden `_CategoryToPost` table with `A` and `B` columns. Declare it as a table and use `.through()`, see [many-to-many relations](/docs/querying/relations#many-to-many-relations).
+
+## 3. Migrations
+
+better-drizzle does not run migrations. Use drizzle-kit from now on: `drizzle-kit generate` and `drizzle-kit migrate`, or `drizzle-kit push` in development. Since the tables already exist, start from the current state and only generate migrations for new changes. The `_prisma_migrations` table can stay until you remove Prisma.
+
+## 4. Create the client
+
+```ts title="db.ts"
+import { better } from 'better-drizzle';
+import { timestamps } from 'better-drizzle/timestamps';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { relations } from './relations';
+
+export const db = drizzle({ connection: process.env.DATABASE_URL!, relations });
+export const client = better(db, { plugins: [timestamps()] });
+```
+
+The [timestamps plugin](/docs/plugins/timestamps) replaces `@updatedAt`: it sets `createdAt` on insert and `updatedAt` on every write. For `@default(uuid())` or `cuid()` ids, use the [UUID plugin](/docs/plugins/uuid) or a Drizzle `$defaultFn`.
+
+During the move, Prisma and better-drizzle can run against the same database. Migrate one service at a time.
+
+## 5. Move the queries
+
+Model names come from your schema keys: `prisma.user` becomes `client.users`.
+
+```ts title="Prisma"
+const user = await prisma.user.findUnique({
+	where: { email },
+	include: { posts: { where: { published: true }, take: 5 } },
+});
+```
+
+```ts title="better-drizzle"
+const user = await client.users.findUnique({
+	where: { email },
+	include: { posts: { where: { published: true }, take: 5 } },
+});
+```
+
+Changes to look for:
+
+- **`OrThrow` methods**: `findUniqueOrThrow(args)` becomes `findUnique(args).throw()`.
+- **Not-found writes**: Prisma's `update` and `delete` throw `P2025`; better-drizzle returns `null`. Add `.throw()` where you relied on the error.
+- **Pagination**: replace `skip` / `take` plus a separate `count` with `paginate({ page, perPage })`, which returns `{ data, pagination }`.
+- **Nested creates**: there is no nested `create` or `connectOrCreate`. Create the related row, then `connect` it, in one transaction:
+
+```ts
+const post = await client.transaction(async (tx) => {
+	const author = await tx.users.create({ data: { email, name } });
+
+	return tx.posts.create({
+		data: { title, author: { connect: { id: author.id } } },
+	});
+});
+```
+
+- **Aggregates**: `aggregate` and `groupBy` move to the Drizzle query builder on `db`. `count` and `_count` stay on the client.
+
+## 6. Transactions
+
+`prisma.$transaction(async (tx) => ...)` becomes `client.transaction(async (tx) => ...)`. The `tx` client has every table and `$raw`. A nested `tx.transaction(...)` opens a savepoint.
+
+The array form, `$transaction([a, b])`, has no equivalent. Move the calls into a callback.
+
+## 7. Errors
+
+| Prisma | better-drizzle |
+| --- | --- |
+| `P2002` unique constraint | `isUniqueViolation(error, 'User_email_key')` |
+| `P2003` foreign key | `isForeignKeyViolation(error)` |
+| `P2025` record not found | `.throw()`, then `error.code === BetterDrizzleErrorCode.ResultNotFound` |
+
+```ts
+import { isUniqueViolation } from 'better-drizzle';
+
+try {
+	await client.users.create({ data: { email, name } });
+} catch (error) {
+	if (isUniqueViolation(error)) throw new Error('Email already in use');
+	throw error;
+}
+```
+
+See [error handling](/docs/advanced/error-handling).
+
+## 8. Middleware and extensions
+
+- **Logging, auditing, metrics** (`$use`, `$extends({ query })` used for side effects): [hooks](/docs/advanced/hooks) such as `afterCreate`, `afterQuery`, and `onError`.
+- **Soft delete, tenant filters, field defaults**: the official [plugins](/docs/plugins/overview), or your own with [`definePlugin`](/docs/plugins/writing-plugins).
+- **Custom client methods** (`$extends({ client, model })`): [`extends()`](/docs/guides/client-extensions) or plugin extensions.
+
+```ts
+const client = better(db, {
+	hooks: {
+		afterCreate(ctx) {
+			console.log('created', ctx.table, ctx.row);
+		},
+	},
+});
+```
+
+## 9. Raw SQL
+
+`$queryRaw` becomes `$raw`, and `$executeRaw` keeps its name. Both take tagged templates and bind values as parameters:
+
+```ts
+const rows = await client.$raw<{ id: number }>`select id from "User" where email = ${email}`;
+```
+
+## 10. Remove Prisma
+
+Once no code imports `@prisma/client`, remove `prisma` and `@prisma/client`, `schema.prisma`, and the generate step from your build. Drop the `_prisma_migrations` table when you no longer need its history.

@@ -1,0 +1,95 @@
+---
+title: better-drizzle vs Prisma
+description: A Prisma-style API on top of Drizzle. How the calls map, what is different, and what Prisma has that better-drizzle does not.
+icon: ArrowRightLeft
+seoTitle: 'better-drizzle vs Prisma'
+seoDescription: 'Compare better-drizzle on Drizzle ORM with Prisma: API mapping for findMany, include, where, upsert, and transactions, plus the honest differences.'
+---
+
+If you know Prisma Client, most of better-drizzle will look familiar: `findMany`, `where`, `include`, `select`, `upsert`, `_count`. The difference is underneath. better-drizzle reads your **Drizzle** schema, compiles every call to a Drizzle query, and runs it on the driver you chose.
+
+## Short answer
+
+Choose better-drizzle when you want Prisma-like ergonomics but prefer Drizzle's model: the schema is TypeScript, there is no generate step, and raw SQL stays a first-class tool on the same connection.
+
+Choose Prisma when you want its full toolchain from one vendor: its schema language, migrations, Studio, and the API surface listed under [what Prisma has](#what-prisma-has-that-better-drizzle-does-not).
+
+## How the calls map
+
+| Prisma | better-drizzle | Notes |
+| --- | --- | --- |
+| `prisma.user.findUnique({ where })` | `client.users.findUnique({ where })` | `where` must pin a primary or unique key |
+| `findUniqueOrThrow`, `findFirstOrThrow` | `findUnique(...).throw()`, `findFirst(...).throw()` | `.throw(factory)` lets you throw your own error |
+| `findMany({ where, orderBy, skip, take })` | `findMany({ where, orderBy, skip, take })` | negative `take` reverses the order |
+| `include` / `select` | `include` / `select` | mutually exclusive at each level, nested at any depth |
+| `include: { _count: { select: { posts: true } } }` | the same | one correlated subquery, no extra round trip |
+| `orderBy: { posts: { _count: 'desc' } }` | the same | relation sorts are [supported](/docs/querying/reads#ordering-by-relations) |
+| `equals`, `not`, `in`, `notIn`, `lt`, `lte`, `gt`, `gte` | the same | |
+| `contains`, `startsWith`, `endsWith`, `mode: 'insensitive'` | the same | insensitive mode works on PostgreSQL, MySQL, and SQLite |
+| `AND`, `OR`, `NOT` | the same | |
+| `some`, `every`, `none`, `is`, `isNot` | the same | |
+| `count({ where })` | `count({ where })` | plus `exists({ where })` |
+| pagination with `skip` / `take` | `paginate({ page, perPage })`, `cursor({ after, limit })` | both return `{ data, pagination }` with totals or cursors |
+| `create({ data: { author: { connect } } })` | the same | `connect` on create; `connect`, `disconnect`, `set` on update |
+| `createMany({ data, skipDuplicates })` | `createMany({ data, skipDuplicates })` | `skipDuplicates` also takes a column list |
+| `update`, `updateMany`, `delete`, `deleteMany` | the same names | `update` / `delete` return `null` when nothing matches instead of throwing |
+| `upsert({ where, create, update })` | the same | native `ON CONFLICT` when the `where` allows it |
+| `{ increment: 1 }`, `{ decrement }`, `{ multiply }`, `{ divide }` | the same | plus `{ toggle: true }` for booleans |
+| `$transaction(async (tx) => ...)` | `client.transaction(async (tx) => ...)` | nested calls become savepoints; optional retries |
+| `$queryRaw` / `$executeRaw` | `$raw` / `$executeRaw` | tagged templates, values bound as parameters |
+| `$queryRawUnsafe` | `$rawUnsafe` | disabled unless `raw.allowUnsafe` is set |
+| `$extends` (query, model, client) | [plugins](/docs/plugins/overview), [hooks](/docs/advanced/hooks), [`extends()`](/docs/guides/client-extensions) | |
+| Prisma error codes (`P2002`, `P2025`) | `BetterDrizzleError` and `isUniqueViolation(error)` | see [errors](/docs/reference/errors) |
+
+The same query in both:
+
+```ts title="Prisma"
+const authors = await prisma.user.findMany({
+	where: { active: true, posts: { some: { published: true } } },
+	include: {
+		posts: { where: { published: true }, orderBy: { id: 'desc' }, take: 3 },
+		_count: { select: { posts: true } },
+	},
+	take: 10,
+});
+```
+
+```ts title="better-drizzle"
+const authors = await client.users.findMany({
+	where: { active: true, posts: { some: { published: true } } },
+	include: {
+		posts: { where: { published: true }, orderBy: { id: 'desc' }, take: 3 },
+		_count: { select: { posts: true } },
+	},
+	take: 10,
+});
+```
+
+Model names come from your Drizzle schema keys (`users`, `posts`), not from Prisma model names (`user`, `post`).
+
+## What is different
+
+- **Schema**: Drizzle tables and `defineRelations` in TypeScript. There is no separate schema language and no generate step; types update as you edit the schema.
+- **SQL-first**: every read has [`.explain()`](/docs/querying/explain), filters accept Drizzle `sql` fragments, and raw Drizzle runs on the same connection and inside the same transaction.
+- **Drivers**: the Drizzle driver you already use for PostgreSQL, MySQL, or SQLite. better-drizzle wraps the client and does not open its own connection.
+- **Bulk writes**: `upsertMany` (one native upsert per batch) and `updateEach` (one `UPDATE ... CASE` for rows with different values).
+- **Row locks**: `lock: { mode: 'update' }` on reads, on PostgreSQL and MySQL.
+- **Plugins in the package**: [soft delete](/docs/plugins/soft-delete), [timestamps](/docs/plugins/timestamps), [tenant isolation](/docs/plugins/tenant), [read cache](/docs/plugins/cache), [UUID ids](/docs/plugins/uuid), [Zod](/docs/plugins/zod), and [guardrails](/docs/plugins/rules).
+- **Not-found writes**: `update` and `delete` return `null`; add `.throw()` to get an error.
+
+## What Prisma has that better-drizzle does not
+
+- **Migrations**: better-drizzle has none. Use [drizzle-kit](https://orm.drizzle.team/docs/kit-overview) (`generate`, `migrate`, `push`) for migrations, and `drizzle-kit studio` to browse data.
+- **Nested creates**: relation writes are `connect`, `disconnect`, and `set` on existing rows. There is no nested `create` or `connectOrCreate`; create the related row first, inside a transaction.
+- **Aggregates**: no `aggregate`, `groupBy`, `_sum`, or `_avg`. Use the Drizzle query builder for those.
+- **`distinct` and `omit`**: not supported; use `select` to choose fields.
+- **Batch transactions**: `$transaction([...])` with an array has no equivalent; use the callback form.
+- **Other databases**: no MongoDB, SQL Server, or CockroachDB support. better-drizzle supports PostgreSQL, MySQL, and SQLite.
+
+See [limitations](/docs/guides/limitations) for everything better-drizzle leaves to raw Drizzle.
+
+## Next steps
+
+- [Migrating from Prisma](/docs/guides/migrating-from-prisma), step by step
+- [better-drizzle vs Drizzle](/docs/compare/drizzle)
+- [Getting started](/docs/getting-started)
