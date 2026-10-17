@@ -10,7 +10,14 @@ const QUESTIONS: { question: string; answer: ReactNode }[] = [
 				You keep Drizzle: a TypeScript schema, SQL-first queries, no
 				codegen, and no query engine. better-drizzle adds the
 				repository-style API on top, and the raw Drizzle client stays
-				available for anything it does not cover.
+				available for anything it does not cover.{' '}
+				<Link
+					href="/docs/compare/prisma"
+					className="text-brand hover:underline"
+				>
+					Compare with Prisma
+				</Link>
+				.
 			</>
 		),
 	},

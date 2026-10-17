@@ -1,7 +1,6 @@
 import { cn } from 'cnfast';
 import {
 	ArrowRight,
-	Bot,
 	Blocks,
 	BookOpenText,
 	Calculator,
@@ -11,8 +10,6 @@ import {
 	Network,
 	Plus,
 	RefreshCw,
-	SearchCheck,
-	ShieldCheck,
 	Zap,
 } from 'lucide-react';
 import Image from 'next/image';
@@ -20,8 +17,11 @@ import Link from 'next/link';
 import { FaDiscord, FaGithub } from 'react-icons/fa';
 import { SiMysql, SiPostgresql, SiSqlite } from 'react-icons/si';
 
+import { CopyPrompt } from '@/components/copy-prompt';
 import { DialectLink } from '@/components/dialect-select';
 import { JsonLd } from '@/components/json-ld';
+import { Agents } from '@/components/landing/agents';
+import { Comparison } from '@/components/landing/comparison';
 import { DocsCode, DocsCodeTabs } from '@/components/landing/docs-code';
 import { Faq } from '@/components/landing/faq';
 import { InstallCommand } from '@/components/landing/install-command';
@@ -42,6 +42,8 @@ const FOOTER_LINKS = [
 		links: [
 			{ href: '/docs/getting-started', label: 'Get Started' },
 			{ href: '/docs/why', label: 'Why better-drizzle' },
+			{ href: '/docs/compare/drizzle', label: 'vs Drizzle' },
+			{ href: '/docs/compare/prisma', label: 'vs Prisma' },
 			{
 				href: '/docs/guides/migrating-from-drizzle',
 				label: 'Migrating from Drizzle',
@@ -57,13 +59,17 @@ const FOOTER_LINKS = [
 			{ href: '/docs/querying/pagination', label: 'Pagination' },
 			{ href: '/docs/advanced/transactions', label: 'Transactions' },
 			{ href: '/docs/plugins/writing-plugins', label: 'Writing Plugins' },
+			{
+				href: '/docs/guides/migrating-from-prisma',
+				label: 'Migrating from Prisma',
+			},
 			{ href: '/docs/ai', label: 'AI & Agent Skills' },
 		],
 	},
 	{
 		title: 'Project',
 		links: [
-			{ href: '/docs/changelog', label: 'Changelog' },
+			{ href: '/changelog', label: 'Changelog' },
 			{ href: '/docs/guides/upgrading', label: 'Upgrading to 0.3' },
 			{ href: `${GITHUB_URL}/issues`, label: 'Report an Issue' },
 			{ href: NPM_URL, label: 'npm' },
@@ -301,31 +307,10 @@ const DATABASES = [
 	},
 ];
 
-const AGENT_POINTS = [
-	{
-		icon: Bot,
-		title: 'Skill pack in the repo',
-		href: '/docs/ai#what-ships',
-		body: 'SKILL.md plus focused references for querying, writes, plugins, and troubleshooting, loaded only when a task needs them.',
-	},
-	{
-		icon: ShieldCheck,
-		title: 'Zero scripts, zero network',
-		href: '/docs/ai#security-model',
-		body: 'Plain Markdown. No install commands, no remote fetches, and explicit rules against prompt injection from your codebase.',
-	},
-	{
-		icon: SearchCheck,
-		title: 'Guardrails that catch mistakes',
-		href: '/docs/plugins/rules',
-		body: 'The ESLint plugin flags unbounded reads and unsafe writes in the editor, and the rules plugin enforces them at runtime.',
-	},
-];
-
 const STATS = [
 	{ value: '~5%', label: 'Median read overhead' },
 	{ value: '< 5%', label: 'Write overhead' },
-	{ value: '0', label: 'Codegen steps' },
+	{ value: '< 4%', label: 'Prepared read overhead' },
 ];
 
 const STRUCTURED_DATA = {
@@ -400,6 +385,12 @@ export default function HomePage() {
 						style={{ animationDelay: '120ms' }}
 					>
 						<InstallCommand />
+					</div>
+					<div
+						className="bd-rise mt-3 flex w-full justify-center"
+						style={{ animationDelay: '140ms' }}
+					>
+						<CopyPrompt />
 					</div>
 					<div
 						className="bd-rise mt-14 w-full max-w-3xl text-left"
@@ -477,6 +468,8 @@ export default function HomePage() {
 					</div>
 				</div>
 			</section>
+
+			<Comparison />
 
 			<section className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-6 py-24 lg:grid-cols-2">
 				<div>
@@ -632,56 +625,7 @@ export default function HomePage() {
 				</p>
 			</section>
 
-			<section className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-6 py-24 lg:grid-cols-2">
-				<div>
-					<h2 className="text-3xl font-semibold tracking-tight">
-						Your AI agent writes the real API
-					</h2>
-					<p className="text-fd-muted-foreground mt-4">
-						better-drizzle ships a first-party skill pack for coding
-						agents. Point yours at it and it stops guessing: the
-						right <code>select</code> shapes, dialect limits, and
-						plugin APIs, straight from the source.
-					</p>
-					<div className="mt-6 flex flex-wrap gap-x-6 gap-y-3">
-						<Link
-							href="/docs/ai"
-							className="text-brand inline-flex items-center gap-2 text-sm font-semibold hover:underline"
-						>
-							Set up the skill
-							<ArrowRight className="size-4" />
-						</Link>
-						<Link
-							href="/docs/plugins/eslint"
-							className="text-fd-muted-foreground hover:text-fd-foreground inline-flex items-center gap-2 text-sm font-semibold"
-						>
-							ESLint plugin
-							<ArrowRight className="size-4" />
-						</Link>
-					</div>
-				</div>
-				<ul className="flex flex-col gap-6">
-					{AGENT_POINTS.map((point) => (
-						<li key={point.title}>
-							<Link
-								href={point.href}
-								className="group flex gap-4"
-							>
-								<point.icon className="text-brand mt-0.5 size-5 shrink-0" />
-								<div>
-									<p className="group-hover:text-brand flex items-center gap-1.5 font-semibold transition-colors">
-										{point.title}
-										<ArrowRight className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
-									</p>
-									<p className="text-fd-muted-foreground mt-1 text-sm">
-										{point.body}
-									</p>
-								</div>
-							</Link>
-						</li>
-					))}
-				</ul>
-			</section>
+			<Agents />
 
 			<Testimonials />
 
