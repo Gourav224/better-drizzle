@@ -2108,8 +2108,8 @@ export type BetterDrizzleModelDelegate<
 			'updateEach'
 		>,
 	>(
-		args: Args &
-			NoInfer<
+		// `data` is the inference site for `Row`, so callbacks see the real rows.
+		args: Args & { data: Row[] } & NoInfer<
 				OperationArgsWithPlugins<
 					UpdateEachArgs<Schema, Name, Meta, Row>,
 					Plugins,
