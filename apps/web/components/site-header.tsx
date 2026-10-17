@@ -16,6 +16,7 @@ const NAV_LINKS = [
 	{ href: '/docs', label: 'Documentation' },
 	{ href: '/docs/plugins/overview', label: 'Plugins' },
 	{ href: '/docs/performance/benchmarks', label: 'Benchmarks' },
+	{ href: '/changelog', label: 'Changelog' },
 ];
 
 function NavLinks() {
