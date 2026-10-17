@@ -1639,8 +1639,10 @@ const getSingleRowOrder = (runtime: TableRuntime) =>
 		? runtime.primaryKeyFields.map((field) => ({ [field]: 'asc' }))
 		: undefined;
 
-// PostgreSQL/SQLite: `key IN (SELECT key ... WHERE predicate LIMIT 1)`, keyed
-// by the primary key, or rowid/ctid for tables without one.
+// PostgreSQL/SQLite: `predicate AND key IN (SELECT key ... WHERE predicate
+// LIMIT 1)`, keyed by the primary key, or rowid/ctid for tables without one.
+// The outer predicate is rechecked against the latest row version when a
+// concurrent write locked it first, so guards like `count > 0` still hold.
 const restrictToOneRow = <Schema extends AnySchema, Meta>(
 	context: RuntimeContext<Schema, Meta>,
 	runtime: TableRuntime,
@@ -1657,9 +1659,12 @@ const restrictToOneRow = <Schema extends AnySchema, Meta>(
 		.from(runtime.table)
 		.where(predicate)
 		.limit(1);
-	return keys.length === 1
-		? sql`${keys[0]} in ${subquery}`
-		: sql`(${sql.join(keys as SQL[], sql`, `)}) in ${subquery}`;
+	return and(
+		predicate,
+		keys.length === 1
+			? sql`${keys[0]} in ${subquery}`
+			: sql`(${sql.join(keys as SQL[], sql`, `)}) in ${subquery}`,
+	) as SQL;
 };
 
 const getPredicate = <Schema extends AnySchema, Meta>(
