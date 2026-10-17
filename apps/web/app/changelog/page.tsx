@@ -109,7 +109,10 @@ function splitBody(body: string) {
 			) {
 				const next = lines[++i];
 				const match = next.match(/<summary>(.*?)<\/summary>/);
-				if (match) summary = match[1].replace(/<[^>]+>/g, '');
+				if (match)
+					summary = match[1]
+						.replace(/<[^>]*>/g, '')
+						.replace(/[<>]/g, '');
 				else text.push(next);
 			}
 			i++;
