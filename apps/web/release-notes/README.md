@@ -23,7 +23,7 @@ Write the body in GitHub-flavored Markdown with `###` sections (Highlights, Brea
 Do not create a release for an old version: publishing a release runs the npm publish workflow. To replace the notes of an existing release, strip the frontmatter and edit it:
 
 ```bash
-awk 'n >= 2 { print } /^---$/ { n++ }' release-notes/0.2.0.md > /tmp/notes.md
+awk 'n >= 2 { print } /^---$/ { n++ }' apps/web/release-notes/0.2.0.md > /tmp/notes.md
 gh release edit v0.2.0 --notes-file /tmp/notes.md
 ```
 
