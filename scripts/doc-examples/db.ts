@@ -17,7 +17,10 @@ export const client = better(db, {
 		timestamps(),
 		softDelete(),
 		cache({ store: {} as CacheStore, ttl: '5m' }),
-		tenant({ columns: ['organizationId'], missing: 'allow' }),
+		tenant({
+			columns: ['organizationId', 'workspaceId'],
+			missing: 'allow',
+		}),
 		zod(),
 		ata(),
 	],

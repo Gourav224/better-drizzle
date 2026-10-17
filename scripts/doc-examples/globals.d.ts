@@ -3,6 +3,7 @@ import type * as bunTest from 'bun:test';
 import type * as better from 'better-drizzle';
 import type * as ata from 'better-drizzle/ata';
 import type * as cache from 'better-drizzle/cache';
+import type { CacheStore } from 'better-drizzle/cache';
 import type * as rules from 'better-drizzle/rules';
 import type * as softDelete from 'better-drizzle/soft-delete';
 import type * as tenant from 'better-drizzle/tenant';
@@ -25,6 +26,9 @@ type Table<Name extends string> = Name extends keyof typeof schemaModule
 declare global {
 	const client: Client;
 	const db: typeof import('./db').db;
+	// A tenant-scoped client from an earlier snippet on the page.
+	const scoped: Client;
+	type Db = Client;
 	const tx: Parameters<Parameters<Client['transaction']>[0]>[0];
 
 	const users: Table<'users'>;
@@ -38,6 +42,9 @@ declare global {
 	const accounts: Table<'accounts'>;
 	const orders: Table<'orders'>;
 	const jobs: Table<'jobs'>;
+	const organizations: Table<'organizations'>;
+	const projects: Table<'projects'>;
+	const tasks: Table<'tasks'>;
 
 	const and: typeof drizzle.and;
 	const asc: typeof drizzle.asc;
@@ -98,7 +105,8 @@ declare global {
 	const test: typeof bunTest.test;
 
 	// Values a snippet takes from its surrounding code (request input, ids).
-	const app: any;
+	// Framework app; route methods take type arguments (`app.get<{ Params }>`).
+	const app: Record<string, <T = any>(...args: any[]) => any>;
 	const connection: any;
 	const ctx: any;
 	const currentTenant: any;
@@ -109,18 +117,39 @@ declare global {
 	const id: any;
 	const input: any;
 	const inputs: any;
+	const findUserByEmail: any;
+	const fromId: any;
+	const ids: any;
+	const importedRows: any;
 	const log: any;
 	const logger: any;
+	const name: any;
 	const order: any;
+	const organizationId: any;
 	const pool: any;
 	const postId: any;
+	const previousCursor: any;
+	// Comparison pages show the equivalent Prisma call.
+	const prisma: any;
 	const query: any;
 	const redis: any;
 	const req: any;
 	const request: any;
+	const requestId: any;
+	const rows: any;
 	const session: any;
+	const store: CacheStore;
 	const userId: any;
+	const metrics: any;
+	const observability: any;
+	const options: any;
+	const reply: any;
+	const tenantId: any;
+	const title: any;
+	const toId: any;
 	const cleanupTempFiles: (...args: any[]) => any;
-	const findUserByEmail: (...args: any[]) => any;
+	const notifySubscribers: (...args: any[]) => any;
+	const rollbackAfter: (...args: any[]) => any;
+	const sendReceipt: (...args: any[]) => any;
 	const sendWelcomeEmail: (...args: any[]) => any;
 }

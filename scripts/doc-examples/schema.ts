@@ -7,6 +7,7 @@ import {
 	pgEnum,
 	pgTable,
 	primaryKey,
+	serial,
 	text,
 	timestamp,
 	uuid,
@@ -28,8 +29,9 @@ export type AccountSettings = {
 
 export const role = pgEnum('role', ['admin', 'editor', 'member', 'viewer']);
 
-export const users = pgTable('users', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+// The repository docs look users up by this database name too.
+export const users = pgTable('app_users', {
+	id: serial('id').primaryKey(),
 	email: text('email').notNull().unique(),
 	name: text('name').notNull(),
 	active: boolean('active').notNull().default(true),
@@ -41,8 +43,9 @@ export const users = pgTable('users', {
 	level: integer('level'),
 	score: integer('score'),
 	tenantId: text('tenant_id'),
-	organizationId: integer('organization_id'),
+	organizationId: text('organization_id'),
 	metadata: jsonb('metadata'),
+	role: role('role'),
 	tags: text('tags').array(),
 	roles: role('roles').array(),
 	createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -51,7 +54,7 @@ export const users = pgTable('users', {
 });
 
 export const profiles = pgTable('profiles', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	id: serial('id').primaryKey(),
 	userId: integer('user_id')
 		.notNull()
 		.unique()
@@ -61,10 +64,9 @@ export const profiles = pgTable('profiles', {
 });
 
 export const posts = pgTable('posts', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-	authorId: integer('author_id')
-		.notNull()
-		.references(() => users.id),
+	id: serial('id').primaryKey(),
+	authorId: integer('author_id').references(() => users.id),
+	editorId: integer('editor_id').references(() => users.id),
 	title: text('title').notNull(),
 	slug: text('slug').unique(),
 	body: text('body'),
@@ -83,12 +85,14 @@ export const posts = pgTable('posts', {
 	scores: integer('scores').array(),
 	flags: text('flags').array(),
 	createdAt: timestamp('created_at').notNull().defaultNow(),
+	publishedAt: timestamp('published_at'),
+	archivedAt: timestamp('archived_at'),
 	updatedAt: timestamp('updated_at'),
 	deletedAt: timestamp('deleted_at'),
 });
 
 export const comments = pgTable('comments', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	id: serial('id').primaryKey(),
 	postId: integer('post_id')
 		.notNull()
 		.references(() => posts.id),
@@ -100,7 +104,7 @@ export const comments = pgTable('comments', {
 });
 
 export const tags = pgTable('tags', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	id: serial('id').primaryKey(),
 	name: text('name').notNull(),
 	slug: text('slug').notNull().unique(),
 });
@@ -119,7 +123,7 @@ export const postTags = pgTable(
 );
 
 export const groups = pgTable('groups', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	id: serial('id').primaryKey(),
 	name: text('name').notNull(),
 });
 
@@ -137,7 +141,7 @@ export const memberships = pgTable(
 );
 
 export const accounts = pgTable('accounts', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	id: serial('id').primaryKey(),
 	userId: integer('user_id').references(() => users.id),
 	name: text('name').notNull(),
 	status: text('status'),
@@ -150,10 +154,12 @@ export const accounts = pgTable('accounts', {
 });
 
 export const orders = pgTable('orders', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	id: serial('id').primaryKey(),
 	userId: integer('user_id')
 		.notNull()
 		.references(() => users.id),
+	accountId: integer('account_id').references(() => accounts.id),
+	payload: jsonb('payload').$type<{ currency: string; total: number }>(),
 	status: text('status').notNull().default('pending'),
 	total: integer('total').notNull().default(0),
 	tenantId: text('tenant_id'),
@@ -161,7 +167,7 @@ export const orders = pgTable('orders', {
 });
 
 export const jobs = pgTable('jobs', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	id: serial('id').primaryKey(),
 	status: text('status').notNull().default('pending'),
 	attempts: integer('attempts').notNull().default(0),
 	payload: jsonb('payload'),
@@ -170,16 +176,27 @@ export const jobs = pgTable('jobs', {
 });
 
 export const organizations = pgTable('organizations', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	id: text('id').primaryKey(),
 	name: text('name').notNull(),
 });
 
 export const projects = pgTable('projects', {
-	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-	organizationId: integer('organization_id')
+	id: serial('id').primaryKey(),
+	organizationId: text('organization_id')
 		.notNull()
 		.references(() => organizations.id),
 	name: text('name').notNull(),
 	archived: boolean('archived').notNull().default(false),
 	createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const tasks = pgTable('tasks', {
+	id: serial('id').primaryKey(),
+	organizationId: text('organization_id').notNull(),
+	workspaceId: integer('workspace_id').notNull(),
+	projectId: integer('project_id')
+		.notNull()
+		.references(() => projects.id),
+	title: text('title').notNull(),
+	done: boolean('done').notNull().default(false),
 });

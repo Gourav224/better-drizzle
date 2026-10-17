@@ -19,6 +19,7 @@ export const relations = defineRelations(schema, (r) => ({
 	},
 	posts: {
 		author: r.one.users({ from: r.posts.authorId, to: r.users.id }),
+		editor: r.one.users({ from: r.posts.editorId, to: r.users.id }),
 		comments: r.many.comments(),
 		// `tags` is the text[] column used by the array examples.
 		labels: r.many.tags({
@@ -46,9 +47,14 @@ export const relations = defineRelations(schema, (r) => ({
 	memberships: {},
 	accounts: {
 		user: r.one.users({ from: r.accounts.userId, to: r.users.id }),
+		orders: r.many.orders(),
 	},
 	orders: {
 		user: r.one.users({ from: r.orders.userId, to: r.users.id }),
+		account: r.one.accounts({
+			from: r.orders.accountId,
+			to: r.accounts.id,
+		}),
 	},
 	jobs: {},
 	organizations: {
@@ -59,5 +65,9 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.projects.organizationId,
 			to: r.organizations.id,
 		}),
+		tasks: r.many.tasks(),
+	},
+	tasks: {
+		project: r.one.projects({ from: r.tasks.projectId, to: r.projects.id }),
 	},
 }));
