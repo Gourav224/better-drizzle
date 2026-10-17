@@ -13,9 +13,10 @@ import type { ComponentProps, ComponentType } from 'react';
 
 import { DialectNotice } from '@/components/dialect';
 import { JsonLd } from '@/components/json-ld';
+import { PageActions } from '@/components/page-actions';
 import { DIALECTS, type Dialect } from '@/lib/dialects';
 import { SITE_NAME, SITE_URL } from '@/lib/seo';
-import { source } from '@/lib/source';
+import { markdownUrl, source } from '@/lib/source';
 import { getMDXComponents } from '@/mdx-components';
 
 type PageParams = { params: Promise<{ slug?: string[] }> };
@@ -86,6 +87,10 @@ export default async function Page(props: PageParams) {
 			{data.dialects && <DialectNotice dialects={data.dialects} />}
 			<DocsTitle>{data.title}</DocsTitle>
 			<DocsDescription>{data.description}</DocsDescription>
+			<PageActions
+				markdownPath={markdownUrl(page.url)}
+				markdownUrl={`${SITE_URL}${markdownUrl(page.url)}`}
+			/>
 			<DocsBody>
 				<MDX
 					components={getMDXComponents({
@@ -152,7 +157,10 @@ export async function generateMetadata(props: PageParams): Promise<Metadata> {
 	return {
 		title,
 		description,
-		alternates: { canonical: page.url },
+		alternates: {
+			canonical: page.url,
+			types: { 'text/markdown': markdownUrl(page.url) },
+		},
 		openGraph: {
 			title: `${title} - ${SITE_NAME}`,
 			description,
