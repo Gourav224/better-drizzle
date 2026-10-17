@@ -37,6 +37,11 @@ jobs:
             - name: Lint
               run: bun run check:lint
 
+            - name: Typecheck docs examples
+              # Not blocking until the existing docs examples pass.
+              continue-on-error: true
+              run: bun run check:docs
+
             - name: Test
               run: bun run test
 
