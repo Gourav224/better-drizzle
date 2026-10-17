@@ -15,6 +15,7 @@
 		"rules",
 		"rules-reference",
 		"eslint",
+		"auth",
 		"writing-plugins",
 		"plugin-hooks",
 		"plugin-scopes"
