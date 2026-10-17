@@ -16,7 +16,7 @@ export const DIALECT_COOKIE = 'bd-dialect';
  * filter applies before the first paint. `?dialect=` (from landing or shared
  * links) is stored and removed from the URL.
  */
-export const DIALECT_SCRIPT = `(function(){try{var v=${JSON.stringify(DIALECTS)},n='${DIALECT_COOKIE}',u=new URL(location.href),q=u.searchParams.get('dialect');if(q!==null){if(v.indexOf(q)>-1)document.cookie=n+'='+q+';path=/;max-age=31536000;samesite=lax';else document.cookie=n+'=;path=/;max-age=0';u.searchParams.delete('dialect');history.replaceState(history.state,'',u)}var m=document.cookie.match(/(?:^|; )${DIALECT_COOKIE}=([^;]+)/);if(m&&v.indexOf(m[1])>-1)document.documentElement.setAttribute('data-dialect',m[1])}catch(e){}})()`;
+export const DIALECT_SCRIPT = `(function(){try{var v='${DIALECTS.join(',')}'.split(','),n='${DIALECT_COOKIE}',u=new URL(location.href),q=u.searchParams.get('dialect');if(q!==null){if(v.indexOf(q)>-1)document.cookie=n+'='+q+';path=/;max-age=31536000;samesite=lax';else document.cookie=n+'=;path=/;max-age=0';u.searchParams.delete('dialect');history.replaceState(history.state,'',u)}var m=document.cookie.match(/(?:^|; )${DIALECT_COOKIE}=([^;]+)/);if(m&&v.indexOf(m[1])>-1)document.documentElement.setAttribute('data-dialect',m[1])}catch(e){}})()`;
 
 export const isDialect = (value: unknown): value is Dialect =>
 	DIALECTS.includes(value as Dialect);
