@@ -211,6 +211,7 @@
 		"lint:commit": "commitlint",
 		"bench": "bun run benchmark/time.ts",
 		"bench:cache": "bun run benchmark/cache.ts",
+		"bench:auth": "bun run benchmark/auth.ts",
 		"bench:all": "bun run benchmark/time.ts && bun run benchmark/full.ts && bun run benchmark/memory.ts",
 		"bench:full": "bun run benchmark/full.ts",
 		"bench:memory": "bun run benchmark/memory.ts",
