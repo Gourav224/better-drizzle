@@ -14,11 +14,16 @@ const ID_ALPHABET =
 const DATE_WITHOUT_OFFSET =
 	/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
 
+/** Bytes from 248 up are dropped so `byte % 62` stays uniform. */
+const UNBIASED_LIMIT = 256 - (256 % ID_ALPHABET.length);
+
 /** Better Auth's default id: 32 characters from `[a-zA-Z0-9]`. */
 const generateId = () => {
 	let id = '';
-	for (const byte of crypto.getRandomValues(new Uint8Array(32)))
-		id += ID_ALPHABET[byte % 62];
+	while (id.length < 32)
+		for (const byte of crypto.getRandomValues(new Uint8Array(32)))
+			if (byte < UNBIASED_LIMIT && id.length < 32)
+				id += ID_ALPHABET[byte % ID_ALPHABET.length];
 
 	return id;
 };
