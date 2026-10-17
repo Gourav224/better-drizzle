@@ -1,0 +1,131 @@
+---
+title: Plugin hooks
+description: Lifecycle hooks, execution order, intercepts, and the context every plugin hook receives.
+icon: Wrench
+seoTitle: 'Plugin Hooks and Intercepts'
+seoDescription: 'Plugin hooks and intercepts for Drizzle ORM with better-drizzle: before and after hooks, execution order, result overrides, intercepts, and hook context.'
+---
+
+Use plugin hooks to change write data, short-circuit reads, or observe operations from a [plugin](/docs/plugins/writing-plugins). Use an intercept when the plugin must wrap the database call itself, as the cache plugin does.
+
+## Register hooks
+
+`hooks` (or `ctx.addHook(...)` in `setup()`) registers lifecycle hooks. Every hook can be async.
+
+| Hook | Runs for | Return value |
+| --- | --- | --- |
+| `beforeCreate` | `create`, `createMany`, `upsert`, `upsertMany` | any value except `undefined` replaces `data` |
+| `beforeUpdate` | `update`, `updateMany`, `updateEach` | any value except `undefined` replaces `data` |
+| `beforeDelete` | `delete`, `deleteMany` | any value except `undefined` skips the database call and becomes the result |
+| `beforeQuery` | `findMany`, `findFirst`, `findOne`, `findUnique`, `count`, `exists`, `paginate`, `cursor` | any value except `undefined` skips the database call and becomes the result |
+| `afterCreate` / `afterUpdate` / `afterDelete` / `afterQuery` | same kinds as the matching before hook | ignored |
+| `beforeTransaction`, `afterTransactionCommit`, `afterTransactionRollback`, `onTransactionError` | `transaction(...)` | ignored |
+| `beforeRaw`, `afterRaw`, `onRawError` | `$raw`, `$executeRaw`, `$rawUnsafe` | ignored |
+
+`upsert` runs the create hooks only, with `kind: 'upsert'` and `data: { create, update }`. Plugins have no `onError` hook. Use `onError` in [client hooks](/docs/advanced/hooks) for that.
+
+```ts
+definePlugin({
+	id: '@acme/slugs',
+	hooks: {
+		beforeCreate(ctx) {
+			if (ctx.kind !== 'create' || !ctx.model.hasColumn('slug')) return;
+			const data = ctx.data as Record<string, unknown>;
+			return { ...data, slug: String(data.title).toLowerCase() };
+		},
+		beforeQuery(ctx) {
+			// short-circuit: count() never hits the database
+			if (ctx.kind === 'count' && ctx.state.cachedCount !== undefined)
+				return ctx.state.cachedCount as number;
+		},
+	},
+});
+```
+
+## Execution order
+
+For one delegate call:
+
+1. plugin before hooks, in plugin order
+2. plugin transforms, in plugin order
+3. client before hook
+4. plugin intercepts, outermost first
+5. the database call, skipped when a `beforeDelete` or `beforeQuery` returned a value or an intercept returned without calling `next()`
+6. client after hook
+7. plugin after hooks, in plugin order
+
+Every before hook runs even after one returns an override. The last override wins.
+
+<Callout type="warn" title="Hook contexts are copies">
+	Each hook receives a shallow copy of the operation input. Reassigning
+	`ctx.where` inside a hook has no effect. Return new `data` from
+	`beforeCreate` / `beforeUpdate`, or use a transform to rewrite `where`,
+	`select`, and the other query fields.
+</Callout>
+
+## Intercepts
+
+<Since version="0.3.0" />
+
+`intercept(ctx)` wraps the execution of every operation kind. It receives the final operation input: before hooks, transforms, and the client before hook have already run. Call `ctx.next()` to run the next intercept (or the database call), or return a value to skip the call. The [cache plugin](/docs/plugins/cache) uses an intercept to serve hits without SQL and to invalidate after writes.
+
+```ts
+definePlugin({
+	id: '@acme/timing',
+	async intercept(ctx) {
+		const started = performance.now();
+		
+		const result = await ctx.next();
+		
+		ctx.annotate('durationMs', performance.now() - started);
+		
+		return result;
+	},
+});
+```
+
+| `ctx` member | Purpose |
+| --- | --- |
+| `next()` | run the next intercept, or the operation for the innermost one |
+| `annotate(key, value)` | record a value that client and plugin after hooks receive in `annotations` |
+| `skipAfterHooks()` | skip client and plugin after hooks for this call |
+| `params` | the values of a [prepared statement](/docs/querying/prepared-statements) execution; `undefined` for regular calls |
+
+Intercepts run in plugin order, so the first plugin is the outermost. When a before hook returned an override, `next()` resolves to it without SQL. `.explain()` never runs intercepts. An intercept's return value becomes the result, so a skipped call must return the same shape the operation would.
+
+Before hooks and transforms run once when a read is prepared, while intercepts run on every `execute()`. During a prepared execution, `ctx.args` holds `param()` markers (Drizzle `Placeholder` instances) and is the same object on every execution, and `ctx.params` holds the values. An intercept that derives anything from the args, such as a cache key, must also account for `ctx.params`.
+
+## Hook context
+
+CRUD and query hooks (and transforms) receive:
+
+<TypeTable
+	type={{
+		kind: { type: 'string', description: 'Operation kind, e.g. `findMany` or `upsertMany`.' },
+		table: { type: 'string', description: 'Schema key of the table.' },
+		model: { type: 'PluginModelInfo', description: '`name`, `dbName`, `columns`, `hasColumn(column)`, `primaryKey`, and `relations`.' },
+		args: { type: 'object', description: 'Shallow copy of the call args, including plugin operation args.' },
+		where: { type: 'object | undefined', description: 'Present when the args contain `where`. Same for `select`, `include`, `orderBy`, `take`, `skip`, and `cursor`.' },
+		data: { type: 'object | object[] | undefined', description: 'Write payload. For `upsert` it is `{ create, update }`.' },
+		meta: { type: 'Meta | undefined', description: 'Merged `$withContext(...)` and per-call `meta`.' },
+		state: { type: 'PluginState', description: 'State set with `$withState(...)`.' },
+		schema: { type: 'Schema', description: 'The relations config from defineRelations(...) that the Drizzle instance was created with.' },
+		dialect: { type: "'pg' | 'mysql' | 'sqlite'", description: 'Detected dialect.' },
+		db: { type: 'unknown', description: 'The bound Drizzle instance (the transaction inside `transaction(...)`).' },
+		options: { type: 'BetterClientOptions', description: 'Options passed to `better(...)`.' },
+		isInTransaction: { type: 'boolean', description: 'Whether the call runs inside a transaction.' },
+		transaction: { type: 'TransactionClient | null', description: 'The transaction client, or `null`.' },
+		transactionContext: { type: 'Record<string, unknown> | undefined', description: 'The `context` passed to `transaction(...)`.' },
+		afterCommit: { type: '(callback) => void', description: 'Queue a callback for after commit. Throws `AFTER_COMMIT_OUTSIDE_TRANSACTION` outside a transaction.' },
+		afterRollback: { type: '(callback) => void', description: 'Queue a callback for after rollback. Throws `AFTER_ROLLBACK_OUTSIDE_TRANSACTION` outside a transaction.' },
+		client: { type: 'Delegate', description: 'Hooks only. The delegate for this table, with the current state.' },
+		result: { type: 'unknown', description: 'After hooks only. The operation result.' },
+		annotations: { type: 'Record<string, unknown> | undefined', description: 'After hooks only. Values recorded by intercepts with `annotate()`.' },
+	}}
+/>
+
+Transaction hooks receive `client` (the transaction client), `attempt`, `depth`, `name`, `comment`, `meta`, `transactionOptions`, `transactionContext`, `dialect`, `models`, `schema`, `db`, `options`, `isInTransaction: true`, `afterCommit`, and `afterRollback`. `afterTransactionRollback` adds `reason`, and `onTransactionError` adds `error`.
+
+Raw hooks receive `action` (`'raw' | 'executeRaw' | 'rawUnsafe'`), `query` (rendered SQL text), `sql`, `rawOptions`, `name`, `comment`, `timeoutMs`, `signal`, `map`, `meta`, `result` (in `afterRaw`), `error` (in `onRawError`), plus `dialect`, `schema`, `db`, `options`, `isInTransaction`, `transaction`, `transactionContext`, `afterCommit`, and `afterRollback`.
+
+Client hooks run before plugin hooks for transaction and raw events.

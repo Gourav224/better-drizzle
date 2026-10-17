@@ -6,6 +6,8 @@ seoTitle: 'Prepared Statements for Drizzle ORM'
 seoDescription: 'Prepare Drizzle ORM reads once with param() and .prepare(), then execute them with new values while keeping typed params, results, hooks, and plugins.'
 ---
 
+<Since version="0.3.0" />
+
 A prepared statement fixes the shape of a read once and runs it many times
 with new values. Mark each value with `param(name)`, call `.prepare()` on the
 read, and pass the values to `execute()`:

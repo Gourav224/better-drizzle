@@ -1,0 +1,104 @@
+---
+title: Array updates
+description: Append, prepend, remove, replace, and add unique values to PostgreSQL array columns in one atomic statement.
+icon: Brackets
+seoTitle: 'PostgreSQL Array Updates'
+seoDescription: 'Atomically append, prepend, remove, replace, and add unique values to PostgreSQL array columns in Drizzle ORM without reading the row first.'
+dialects: [postgresql]
+---
+
+<Since version="0.3.0" />
+
+Use array updates when you add or remove elements of a PostgreSQL array column (tags, roles, permissions) without reading the row first. Each update is one atomic SQL statement.
+
+## Append, prepend, remove, and replace
+
+Array updates work in `update`, `updateMany`, `updateEach`, `upsert`, and
+explicit-object or callback `upsertMany` updates. A field takes either its
+normal replacement value or one update object.
+
+```ts tab="better-drizzle" tab-group="orm"
+await client.posts.update({
+	where: { id: postId },
+	data: {
+		tags: { append: ['drizzle', 'orm'] },
+		roles: { prepend: 'editor' },
+		flags: { remove: ['archived', 'spam'] },
+		scores: {
+			replace: [
+				{ from: 0, to: 1 },
+				{ from: -1, to: 0 },
+			],
+		},
+	},
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { eq, sql } from 'drizzle-orm';
+
+await db
+	.update(posts)
+	.set({
+		tags: sql`array_cat(${posts.tags}, ${sql.param(['drizzle', 'orm'], posts.tags)})`,
+		roles: sql`array_prepend(${'editor'}, ${posts.roles})`,
+		flags: sql`array_remove(array_remove(${posts.flags}, ${'archived'}), ${'spam'})`,
+		scores: sql`array_replace(array_replace(${posts.scores}, ${0}, ${1}), ${-1}, ${0})`,
+	})
+	.where(eq(posts.id, postId));
+```
+
+## Add values only once
+
+`addUnique` adds only values that are not already present. It is still one SQL
+statement, preserves the order of the first input occurrence, and leaves
+duplicates that already exist in the stored array untouched:
+
+```ts tab="better-drizzle" tab-group="orm"
+await client.posts.update({
+	where: { id: postId },
+	data: { tags: { addUnique: ['drizzle', 'orm', 'drizzle'] } },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { eq, sql } from 'drizzle-orm';
+
+const values = ['drizzle', 'orm', 'drizzle'];
+await db
+	.update(posts)
+	.set({
+		tags: sql`case when ${posts.tags} is null then ${posts.tags} else array_cat(${posts.tags}, coalesce((select array_agg(item order by position) from (select item, min(position) as position from unnest(${sql.param(values, posts.tags)}::text[]) with ordinality as input(item, position) where not (${posts.tags} @> array[item]) group by item) as missing), ${posts.tags}[0:0])) end`,
+	})
+	.where(eq(posts.id, postId));
+```
+
+## Rules
+
+Use exactly one operator per field. Mutation lists must contain at least one
+non-`null` item. `replace` accepts either one `{ from, to }` pair or a list of
+pairs, which runs from left to right. `remove` removes every occurrence, as
+PostgreSQL's `array_remove()` does. Direct replacement remains available:
+
+```ts
+await client.posts.update({
+	where: { id: postId },
+	data: { tags: [] },
+});
+```
+
+For a `NULL` stored array, PostgreSQL's native functions keep their native
+semantics. `addUnique` also leaves `NULL` unchanged rather than treating it as
+an empty array.
+
+## Reference
+
+| Operator | Effect | PostgreSQL |
+| --- | --- | --- |
+| `append` | adds values at the end | `array_append` (one value) / `array_cat` |
+| `prepend` | adds values at the start | `array_prepend` (one value) / `array_cat` |
+| `remove` | removes every occurrence of each value | `array_remove` |
+| `replace` | replaces `from` with `to`, pair by pair from left to right | `array_replace` |
+| `addUnique` | appends values that are not present yet, in first-input order | one `array_cat` with a `NOT @>` subquery |
+
+Other dialects throw `ARRAY_MUTATION_UNSUPPORTED`. Measured costs are in [array indexing and performance](/docs/querying/array-indexing#benchmark-parity).

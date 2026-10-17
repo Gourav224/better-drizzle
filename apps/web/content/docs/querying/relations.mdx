@@ -1,12 +1,12 @@
 ---
 title: Relations
-description: Load related rows with include and select, and filter by them with some, every, none, is, and isNot.
+description: Load related rows with include and select, count them with _count, and use many-to-many relations.
 icon: Workflow
 seoTitle: 'Drizzle ORM Relations - include & select'
 seoDescription: 'Load Drizzle ORM relations with nested include and select, and filter by related rows with some, every, none, is, and isNot. Batched, no N+1 queries.'
 ---
 
-Relations are where better-drizzle saves the most repetition. Once your relations are declared with Drizzle's `defineRelations`, you can load and filter by related rows with full type inference.
+Use `include` and relation `select` to load related rows with one call and a typed nested result. Relations come from Drizzle's `defineRelations`. To filter rows by their relations, see [relation filters](/docs/querying/relation-filters).
 
 Relation reads use a batch loader owned by better-drizzle: one root query plus one query per requested relation node. They do not issue one query per parent row.
 
@@ -261,131 +261,6 @@ Two kinds of Drizzle relations are not supported by the better-drizzle loader:
 - `one` relations declared through a junction table
 
 They are not part of the better-drizzle relation API: loading one with `include` or `select` throws `Relation "x" on "t" cannot be loaded: ...`, and filtering through one in `where` throws `Relation "x" on "t" cannot be filtered: ...`. Sorting by one in `orderBy` throws the same unsupported-relation error. They still work with Drizzle's own relational queries on the underlying Drizzle instance.
-
-## Filtering by related rows
-
-`where` can constrain a row by its relations. The operators depend on the relation's cardinality.
-
-### To-one relations: `is` / `isNot`
-
-For a "belongs to" / "has one" relation, use `is` (and `isNot`) with a nested filter:
-
-```ts tab="better-drizzle" tab-group="orm"
-const posts = await client.posts.findMany({
-	where: {
-		author: {
-			is: { active: true },
-		},
-	},
-	include: { author: true },
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { eq, getColumns } from 'drizzle-orm';
-
-const activeAuthorPosts = await db
-	.select({ ...getColumns(posts), author: getColumns(users) })
-	.from(posts)
-	.innerJoin(users, eq(posts.authorId, users.id))
-	.where(eq(users.active, true));
-```
-
-### To-many relations: `some` / `every` / `none`
-
-For a "has many" relation, choose the quantifier:
-
-```ts tab="better-drizzle" tab-group="orm"
-// Users who have at least one published post
-const authors = await client.users.findMany({
-	where: {
-		posts: { some: { published: true } },
-	},
-});
-
-// Users with no unpublished posts
-const fullyPublished = await client.users.findMany({
-	where: {
-		posts: { none: { published: false } },
-	},
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { and, eq, exists, notExists } from 'drizzle-orm';
-
-// Users who have at least one published post
-const authors = await db
-	.select()
-	.from(users)
-	.where(
-		exists(
-			db
-				.select()
-				.from(posts)
-				.where(and(eq(posts.authorId, users.id), eq(posts.published, true))),
-		),
-	);
-
-// Users with no unpublished posts
-const fullyPublished = await db
-	.select()
-	.from(users)
-	.where(
-		notExists(
-			db
-				.select()
-				.from(posts)
-				.where(and(eq(posts.authorId, users.id), eq(posts.published, false))),
-		),
-	);
-```
-
-| Operator | True when… |
-| --- | --- |
-| `some` | at least one related row matches |
-| `every` | all related rows match |
-| `none` | no related row matches |
-| `is` | the single related row matches |
-| `isNot` | the single related row does not match |
-
-## Combining relation and scalar filters
-
-Relation filters compose with scalar filters and logical operators like anything else:
-
-```ts tab="better-drizzle" tab-group="orm"
-const posts = await client.posts.findMany({
-	where: {
-		AND: [
-			{ published: true },
-			{
-				author: {
-					is: { email: { endsWith: '@company.com' } },
-				},
-			},
-		],
-	},
-	select: {
-		id: true,
-		title: true,
-		author: { select: { id: true, email: true } },
-	},
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { and, eq, like } from 'drizzle-orm';
-
-const companyPosts = await db
-	.select({
-		id: posts.id,
-		title: posts.title,
-		author: { id: users.id, email: users.email },
-	})
-	.from(posts)
-	.innerJoin(users, eq(posts.authorId, users.id))
-	.where(and(eq(posts.published, true), like(users.email, '%@company.com')));
-```
 
 ## Explain plans
 

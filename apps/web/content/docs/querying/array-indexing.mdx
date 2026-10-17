@@ -1,0 +1,135 @@
+---
+title: Array indexing
+description: Index PostgreSQL array columns with GIN, check the plan, and see the measured cost of array filters and updates.
+icon: Brackets
+seoTitle: 'Indexing PostgreSQL Array Columns'
+seoDescription: 'Index PostgreSQL array columns used with Drizzle ORM filters: GIN for containment and overlap, expression indexes for length, and benchmark results.'
+dialects: [postgresql]
+---
+
+Use this page when you filter a PostgreSQL array column on a table that keeps growing. Without an index, [array filters](/docs/querying/arrays) scan every row.
+
+<Callout type="warn" title="Add a GIN index to every array column you filter">
+	Without one, `has`, `hasEvery`, `hasSome`, and `containedBy` scan the whole
+	table and run the operator on every row. The query gets slower as the table
+	grows, no matter how few rows match.
+</Callout>
+
+## Why GIN
+
+A regular B-tree index orders whole values, so it can answer "is the array exactly `['a', 'b']`" but not "does the array contain `'a'`". A GIN (Generalized Inverted Index) index stores every element separately, pointing at the rows that contain it, like the index at the back of a book. A containment or overlap query then reads only the lists for the elements you ask about, instead of opening every row.
+
+PostgreSQL's default GIN operator class for arrays (`array_ops`) supports exactly the operators better-drizzle generates:
+
+| Filter | Operator | Uses the GIN index |
+| --- | --- | --- |
+| `has`, `hasEvery` | `@>` | yes |
+| `hasSome` | `&&` | yes |
+| `containedBy` | `<@` | yes |
+| a plain array / `equals` | `=` | yes |
+| `hasNone` | `NOT (... && ...)` | no, a negation cannot be narrowed by the index |
+| `isEmpty`, `length` | `cardinality()` | no, use an expression index (below) |
+
+## Create it with Drizzle
+
+Declare the index next to the table and generate the migration with drizzle-kit as usual:
+
+```ts title="schema.ts"
+import { index, integer, pgTable, text } from 'drizzle-orm/pg-core';
+
+export const posts = pgTable(
+	'posts',
+	{
+		id: integer('id').primaryKey(),
+		tags: text('tags').array().notNull(),
+		roles: text('roles').array().notNull(),
+	},
+	(table) => [
+		index('posts_tags_gin').using('gin', table.tags),
+		index('posts_roles_gin').using('gin', table.roles),
+	],
+);
+```
+
+It produces:
+
+```sql
+create index "posts_tags_gin" on "posts" using gin ("tags");
+```
+
+On a large table that is already in production, build the index without blocking writes with `create index concurrently`. It cannot run inside a transaction, and Drizzle's migrator wraps migrations in one, so run that statement as a one-off script outside the migrator. `.concurrently()` on the index builder only changes the generated SQL.
+
+## Check that the index is used
+
+better-drizzle generates the same `@>` / `&&` / `<@` predicates you would write by hand, so the planner makes the same choice for both. The `bun run bench:arrays` suite checks exactly that: identical rows and a plan that uses the GIN index on both sides. Use [`.explain()`](/docs/querying/explain) on your own queries and look for a `Bitmap Index Scan` on the GIN index:
+
+```ts
+const {
+	statements: [plan],
+} = await client.posts
+	.findMany({ where: { tags: { has: 'drizzle' } } })
+	.explain();
+```
+
+```text
+Bitmap Heap Scan on posts
+  Recheck Cond: (tags @> '{drizzle}'::text[])
+  ->  Bitmap Index Scan on posts_tags_gin
+        Index Cond: (tags @> '{drizzle}'::text[])
+```
+
+A `Seq Scan on posts` instead means there is no usable index, or that the table is small enough that PostgreSQL decided scanning it is cheaper. On tiny tables that is expected and fine.
+
+## Benchmark parity
+
+`bun run bench:arrays` seeds 100,000 rows, validates result parity against a
+manual Drizzle statement for the GIN-backed `has` predicate and `addUnique`,
+then benchmarks every mutation with the same `UPDATE … RETURNING` shape.
+
+On PostgreSQL 16, Bun 1.4.0, and a local 13th-gen i7, one run measured:
+
+| Operation | Drizzle | better-drizzle |
+| --- | ---: | ---: |
+| `has` with GIN | 2.54 ms | 2.19 ms |
+| `addUnique` | 1.32 ms | 1.24 ms |
+| `append` | 1.22 ms | 1.90 ms |
+| `prepend` | 1.24 ms | 2.12 ms |
+| `remove` | 879 µs | 804 µs |
+| `replace` | 995 µs | 1.03 ms |
+
+Absolute timings vary with hardware, cache state, and PostgreSQL settings; use
+the paired ratio from your own run. The native mutations remain one atomic SQL
+statement. `append` and `prepend` intentionally expose the normal repository
+update overhead because they grow the measured row; they are not a claim that
+the SQL primitive itself is slower.
+
+## Length and emptiness
+
+`length` and `isEmpty` compile to `cardinality(column)`, which the GIN index cannot serve. If you filter on them often, add an expression index, either with an `sql` expression in `on()` or in a SQL migration:
+
+<Tabs items={['Drizzle', 'SQL migration']}>
+
+<Tab value="Drizzle">
+
+```ts title="schema.ts"
+(table) => [
+	index('posts_tags_gin').using('gin', table.tags),
+	index('posts_tags_count').on(sql`cardinality(${table.tags})`),
+],
+```
+
+</Tab>
+
+<Tab value="SQL migration">
+
+```sql
+create index posts_tags_count on posts ((cardinality(tags)));
+```
+
+</Tab>
+
+</Tabs>
+
+## Trade-offs
+
+GIN indexes are larger than B-tree indexes and make writes to the column slower, because each element gets its own entry. PostgreSQL softens this with a pending list (`fastupdate`, on by default) that batches new entries. For read-heavy filters such as tags, roles, and permissions, the trade is almost always worth it. For a write-heavy column you rarely filter on, skip the index.

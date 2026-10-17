@@ -1,0 +1,126 @@
+---
+title: Observability plugin
+description: Package logging and timing hooks as one plugin that every service installs with one line.
+icon: Activity
+seoTitle: 'Observability Plugin for Drizzle ORM'
+seoDescription: 'Package Drizzle ORM query, raw SQL, and transaction logging hooks as a reusable better-drizzle plugin, and learn how plugin hooks differ from client hooks.'
+---
+
+Use this when several services should log database work the same way. It packages the hooks from [logging](/docs/guides/observability) and [tracing](/docs/guides/observability-tracing) as a [plugin](/docs/plugins/writing-plugins).
+
+Once the hooks settle, move them into a plugin so every service installs the same thing with one line. Plugin hooks receive `kind` (the operation), `table`, `args`, and `meta`, like client hooks:
+
+```ts title="lib/observability.ts"
+import { definePlugin } from 'better-drizzle/plugins';
+
+type Entry = Record<string, unknown>;
+type Options = {
+	slowMs?: number;
+	log?: (level: 'info' | 'warn' | 'error', message: string, entry: Entry) => void;
+};
+
+export const observability = ({
+	slowMs = 200,
+	log = (level, message, entry) => console[level](message, entry),
+}: Options = {}) => {
+	const started = new WeakMap<object, number>();
+
+	const start = (key: object) => {
+		started.set(key, performance.now());
+	};
+
+	const stop = (key: object) => {
+		const at = started.get(key);
+		started.delete(key);
+		return at === undefined ? undefined : performance.now() - at;
+	};
+
+	const finish = (ctx: {
+		kind: string;
+		table: string;
+		args: unknown;
+		meta?: Record<string, unknown>;
+	}) => {
+		const ms = stop(ctx.args as object);
+		if (ms === undefined) return;
+
+		log(ms >= slowMs ? 'warn' : 'info', 'db', {
+			kind: ctx.kind,
+			table: ctx.table,
+			ms: Math.round(ms),
+			requestId: ctx.meta?.requestId,
+		});
+	};
+
+	return definePlugin({
+		id: 'app/observability',
+		hooks: {
+			beforeQuery(ctx) {
+				start(ctx.args);
+			},
+			afterQuery: finish,
+			beforeCreate(ctx) {
+				start(ctx.args);
+			},
+			afterCreate: finish,
+			beforeUpdate(ctx) {
+				start(ctx.args);
+			},
+			afterUpdate: finish,
+			beforeDelete(ctx) {
+				start(ctx.args);
+			},
+			afterDelete: finish,
+			beforeRaw(ctx) {
+				start(ctx.rawOptions);
+			},
+			afterRaw(ctx) {
+				log('info', 'raw sql', {
+					name: ctx.name,
+					query: ctx.query,
+					ms: stop(ctx.rawOptions),
+					requestId: ctx.meta?.requestId,
+				});
+			},
+			onRawError(ctx) {
+				log('error', 'raw sql failed', {
+					name: ctx.name,
+					query: ctx.query,
+					error: ctx.error,
+					ms: stop(ctx.rawOptions),
+				});
+			},
+			beforeTransaction(ctx) {
+				start(ctx.client);
+			},
+			afterTransactionCommit(ctx) {
+				log('info', 'tx commit', {
+					depth: ctx.depth,
+					attempt: ctx.attempt,
+					ms: stop(ctx.client),
+				});
+			},
+			afterTransactionRollback(ctx) {
+				log('warn', 'tx rollback', {
+					depth: ctx.depth,
+					attempt: ctx.attempt,
+					ms: stop(ctx.client),
+				});
+			},
+		},
+	});
+};
+```
+
+```ts
+export const client = better(db, {
+	plugins: [observability({ slowMs: 100 })],
+});
+```
+
+## Differences from client hooks
+
+- **Before hooks must return nothing.** In a plugin, a value returned from `beforeCreate` or `beforeUpdate` replaces the write data, and a value returned from `beforeQuery` or `beforeDelete` replaces the result and skips the database call. Use block bodies, as above, so the hooks return `undefined`.
+- **No `onError`.** Plugins cannot observe failed CRUD operations. Keep an `onError` client hook next to the plugin for error logs. Raw and transaction failures are covered by `onRawError` and `onTransactionError`.
+- **`$withoutPlugins()` skips it.** Calls made through `$withoutPlugins()` are not logged by the plugin. Client hooks still see them.
+- **Order matters.** Plugins run in `plugins` array order. Put this one first so its timer also covers the other plugins' before hooks and transforms.

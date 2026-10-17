@@ -1,0 +1,190 @@
+---
+title: Locking patterns
+description: Claim jobs, lock cursor pages, lock a joined relation, and handle lock timeouts.
+icon: Lock
+seoTitle: 'Row Locking Patterns in Drizzle'
+seoDescription: 'Row locking patterns for Drizzle ORM on PostgreSQL and MySQL: claim jobs with SKIP LOCKED, lock cursor pages and joined relations, and handle lock timeouts.'
+dialects: [postgresql, mysql]
+---
+
+These patterns build on [row locks](/docs/advanced/locks). Each one runs inside a transaction, because outside one the lock is released when the statement ends.
+
+## Claim a row, then write it
+
+The most common pattern is combining locks with transactions for atomic read-then-write:
+
+```ts tab="better-drizzle" tab-group="orm"
+await client.transaction(async (tx) => {
+	const job = await tx.jobs.findFirst({
+		where: { status: 'pending' },
+		lock: {
+			mode: 'update',
+			noWait: true,
+		},
+	});
+
+	if (!job) return null;
+
+	await tx.jobs.update({
+		where: { id: job.id },
+		data: { status: 'processing' },
+	});
+
+	return job;
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { eq } from 'drizzle-orm';
+
+await db.transaction(async (tx) => {
+	const [job] = await tx
+		.select()
+		.from(jobs)
+		.where(eq(jobs.status, 'pending'))
+		.limit(1)
+		.for('update', { noWait: true });
+
+	if (!job) return null;
+
+	await tx
+		.update(jobs)
+		.set({ status: 'processing' })
+		.where(eq(jobs.id, job.id));
+
+	return job;
+});
+```
+
+## Lock a cursor page
+
+Locks propagate to cursor pagination, including the internal `hasPrevious`/`hasNext` probe queries:
+
+```ts tab="better-drizzle" tab-group="orm"
+const page = await client.users.cursor({
+	where: { active: true },
+	lock: {
+		mode: 'update',
+		skipLocked: true,
+	},
+	limit: 25,
+	after: previousCursor,
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { and, asc, desc, eq, gt, lt } from 'drizzle-orm';
+
+const limit = 25;
+const rows = await db
+	.select()
+	.from(users)
+	.where(and(eq(users.active, true), gt(users.id, previousCursor.id)))
+	.orderBy(asc(users.id))
+	.limit(limit + 1)
+	.for('update', { skipLocked: true });
+
+const data = rows.slice(0, limit);
+const hasNext = rows.length > limit;
+
+// probe for a previous page with the same lock
+const [before] = data[0]
+	? await db
+			.select({ id: users.id })
+			.from(users)
+			.where(and(eq(users.active, true), lt(users.id, data[0].id)))
+			.orderBy(desc(users.id))
+			.limit(1)
+			.for('update', { skipLocked: true })
+	: [];
+const hasPrevious = Boolean(before);
+
+// shape the cursor metadata by hand
+const page = {
+	data,
+	pagination: {
+		type: 'cursor',
+		hasNext,
+		hasPrevious,
+		nextCursor: hasNext ? { id: data[data.length - 1].id } : null,
+		previousCursor: hasPrevious ? { id: data[0].id } : null,
+	},
+};
+```
+
+## Lock a row and its to-one relation
+
+Locks work with a single `include: { relation: true }` on a to-one relation when `where` also filters that relation with `is`. The pair compiles to one inner join, so the lock covers both tables:
+
+```ts tab="better-drizzle" tab-group="orm"
+const posts = await client.posts.findMany({
+	where: { published: true, author: { is: { active: true } } },
+	include: { author: true },
+	lock: 'update',
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { and, eq, getColumns } from 'drizzle-orm';
+
+const publishedPosts = await db
+	.select({ ...getColumns(posts), author: getColumns(users) })
+	.from(posts)
+	.innerJoin(users, eq(posts.authorId, users.id))
+	.where(and(eq(posts.published, true), eq(users.active, true)))
+	.for('update');
+```
+
+General relation loading (multiple `include` fields or relation `select`) is **intentionally rejected** when `lock` is present.
+This avoids silently dropping the lock on the relation query:
+
+```ts
+// This throws LOCK_NOT_SUPPORTED
+const posts = await client.posts.findMany({
+	include: { author: true, tags: true },
+	lock: 'update',
+});
+```
+
+## Handle lock timeouts
+
+Lock acquisition failures are normalized to `BetterDrizzleError` with code `LOCK_TIMEOUT`:
+
+```ts tab="better-drizzle" tab-group="orm"
+import { BetterDrizzleError, BetterDrizzleErrorCode } from 'better-drizzle';
+
+try {
+	await client.transaction(async (tx) => {
+		return tx.users.findMany({
+			where: { id: 1 },
+			lock: {
+				mode: 'update',
+				noWait: true,
+			},
+		});
+	});
+} catch (error) {
+	if (error instanceof BetterDrizzleError && error.code === BetterDrizzleErrorCode.LockTimeout) {
+		console.log('Row is locked by another transaction');
+	}
+}
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { eq } from 'drizzle-orm';
+
+try {
+	await db.transaction(async (tx) => {
+		return tx
+			.select()
+			.from(users)
+			.where(eq(users.id, 1))
+			.for('update', { noWait: true });
+	});
+} catch (error) {
+	// PostgreSQL lock_not_available on the wrapped driver error; match each driver's code by hand
+	if ((error as { cause?: { code?: string } }).cause?.code === '55P03') {
+		console.log('Row is locked by another transaction');
+	}
+}
+```

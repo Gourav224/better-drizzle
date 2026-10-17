@@ -1,0 +1,262 @@
+---
+title: Upgrade to 0.3 (Drizzle ORM 1.x)
+description: Move from better-drizzle 0.2 on Drizzle 0.x to 0.3 on Drizzle ORM 1.x with defineRelations.
+icon: ArrowUpCircle
+seoTitle: 'Upgrade to 0.3 and Drizzle ORM 1.x'
+seoDescription: 'Step-by-step upgrade from better-drizzle 0.2 to 0.3 on Drizzle ORM 1.x: defineRelations, relation-typed clients, .through() many-to-many, and typecheck fixes.'
+---
+
+Follow this guide when you move a project from `better-drizzle@0.2.x` on `drizzle-orm` 0.x to `0.3.x` on Drizzle ORM 1.x. Runtime behavior changes and new features are listed in [0.3 changes](/docs/guides/upgrading-0-3-changes).
+
+better-drizzle `0.3.0` supports **only** Drizzle ORM 1.x: the `drizzle-orm`
+peer range is `>=1.0.0-rc.4 <1.0.0-rc.5`, and the release is tested against
+`1.0.0-rc.4`. Drizzle 1.x replaces the `relations(...)` helpers with
+`defineRelations(...)` (relational queries v2). better-drizzle now reads
+tables and relations from the Drizzle instance, so `better()` no longer takes
+a `schema` option.
+
+<Callout type="info" title="Staying on drizzle-orm 0.x">
+	The `0.2.x` line is the last one that works with `drizzle-orm` 0.x (peer
+	`^0.30.0`). It keeps the `better(db, { schema })` API. Pin
+	`better-drizzle@~0.2.0` until you upgrade Drizzle itself. There is no
+	release that supports both major versions of Drizzle.
+</Callout>
+
+
+## At a glance
+
+| | `0.2.x` (Drizzle 0.x) | `0.3.x` (Drizzle 1.x) |
+| --- | --- | --- |
+| `drizzle-orm` peer | `^0.30.0` | `>=1.0.0-rc.4 <1.0.0-rc.5` |
+| Relations | `relations(table, ...)` per table | one `defineRelations(schema, ...)` call |
+| Drizzle instance | `drizzle(client, { schema })` | `drizzle({ client, relations })` |
+| Client | `better(db, { schema, ...options })` | `better(db, options?)` |
+| Where tables come from | the `schema` option | `db._.relations` |
+| Type parameter | `typeof schema` | `typeof relations` |
+| Many-to-many | inferred junctions + `relations.manyToMany` | explicit `.through()` relations |
+| Plugin / hook `ctx.schema` | the schema module | the relations config |
+| Driver errors | thrown as-is | wrapped in `DrizzleQueryError`, driver error on `cause` |
+
+The delegate API keeps its methods, arguments, and result shapes, apart from
+the [type changes](#7-typecheck) and
+[behavior changes](/docs/guides/upgrading-0-3-changes#behavior-changes) listed below. That covers `findMany`, `cursor`, `upsertMany`,
+`include._count`, `connect` / `set`, locks, `$withContext`, raw SQL,
+transactions, and every plugin option. The migration touches the lines that
+build the client and the type annotations that name the schema.
+
+## 1. Upgrade drizzle-orm
+
+```bash
+npm install drizzle-orm@1.0.0-rc.4 better-drizzle@^0.3.0
+```
+
+Follow Drizzle's own 1.x migration notes for driver and schema changes. The
+steps below cover what better-drizzle needs.
+
+## 2. Move relations to defineRelations
+
+Keep tables in `schema.ts` and declare every relation in one
+`defineRelations` call:
+
+```ts title="schema.ts"
+// [!code --:7]
+export const usersRelations = relations(users, ({ many }) => ({
+	posts: many(posts),
+}));
+
+export const postsRelations = relations(posts, ({ one }) => ({
+	author: one(users, { fields: [posts.authorId], references: [users.id] }),
+}));
+```
+
+```ts title="relations.ts"
+// [!code ++:7]
+import { defineRelations } from 'drizzle-orm';
+import * as schema from './schema';
+
+export const relations = defineRelations(schema, (r) => ({
+	users: { posts: r.many.posts() },
+	posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) },
+}));
+```
+
+Use `defineRelations(schema)` without a callback when the schema has no
+relations. When two relations connect the same pair of tables, give both sides
+the same `alias`. The old `relationName` option did this job.
+
+## 3. Pass relations to drizzle() and drop schema from better()
+
+```ts title="db.ts"
+// [!code --:3]
+import { schema } from './schema';
+const db = drizzle(pool, { schema });
+export const client = better(db, { schema, plugins });
+// [!code ++:3]
+import { relations } from './relations';
+const db = drizzle({ client: pool, relations });
+export const client = better(db, { plugins });
+```
+
+`better()` reads tables and relations from `db`. Every other option -
+`plugins`, `hooks`, `raw`, `locks`, `transaction` - is unchanged, and the
+options argument is now optional: `better(db)`. A Drizzle instance created
+without `relations` has no tables to read, so `better()` throws
+`No tables found on the Drizzle instance. Pass your relations to drizzle(), e.g. drizzle({ client, relations: defineRelations(schema) }).`
+
+Only tables that appear in the relations config get a delegate. Pass the whole
+schema module to `defineRelations(schema, ...)`, not only the tables that have
+relations.
+
+## 4. Switch type generics to typeof relations
+
+The client's type parameter is now the relations config:
+
+```ts
+// [!code --:3]
+type Db = BetterDrizzleClient<typeof schema>;
+type Key = BetterTableKey<typeof schema>;
+type UserWhere = WhereArg<typeof schema, 'users'>;
+// [!code ++:3]
+type Db = BetterDrizzleClient<typeof relations>;
+type Key = BetterTableKey<typeof relations>;
+type UserWhere = WhereArg<typeof relations, 'users'>;
+```
+
+The same applies to explicit `better<...>()` calls and to every exported
+helper type. The `schema` field of plugin setup and hook contexts is the
+relations config as well. It is keyed by table key, and each entry is
+`{ table, name, relations }`, so plugin code that iterated the schema module
+and checked `isTable(...)` should read `ctx.schema[key].table` instead.
+
+## 5. Replace many-to-many config with .through()
+
+The `relations: { inferManyToMany, manyToMany }` option is removed, and
+junction tables are no longer inferred. Declare many-to-many relations with
+`.through()`:
+
+```ts
+// [!code --:8]
+const client = better(db, {
+	schema,
+	relations: {
+		manyToMany: [
+			{ through: 'userGroups', left: { relation: 'user' }, right: { relation: 'group' } },
+		],
+	},
+});
+
+// [!code ++:6]
+users: {
+	groups: r.many.groups({
+		from: r.users.id.through(r.userGroups.userId),
+		to: r.groups.id.through(r.userGroups.groupId),
+	}),
+},
+```
+
+Relation filters, `include` / `select`, `_count`, and `connect` /
+`disconnect` / `set` work through `.through()` relations. A junction you
+relied on through inference now needs an explicit `.through()` relation.
+Without one, the relation does not exist and using it is a type error. See
+[relations](/docs/querying/relations#many-to-many-relations).
+
+## 6. Check error handling and plugin column requirements
+
+- Drizzle 1.x wraps driver errors in `DrizzleQueryError` (`Failed query: ...`)
+  with the driver error as `cause`. `BetterDrizzleError.from(...)`,
+  `getDatabaseErrorInfo`, and `isUniqueViolation` / `isForeignKeyViolation` /
+  `isNotNullViolation` / `isCheckViolation` read the wrapped driver error, so
+  codes and constraint names still resolve. Code that inspects raw driver
+  errors directly, such as `error.code === '23505'` in a `catch` around raw
+  Drizzle calls, should read `error.cause`.
+- Column `dataType` is now `"<type> <constraint>"` (for example `number int32`,
+  `object date`, `string uuid`). A plugin's `config.requires.columns[].type`
+  matches the column's `columnType` (`PgTimestamp`), its full `dataType`, or
+  one part of it (`'date'`, `'string'`). Your own plugin code that compares
+  `column.dataType === 'string'` must compare the first part instead:
+  `column.dataType.startsWith('string')`.
+- PostgreSQL array columns are now the element column with `dimensions > 0`;
+  Drizzle 1.x has no `PgArray` column class or `baseColumn`. Plugin code that
+  detected arrays with `instanceof PgArray` should check `column.dimensions`.
+- JSON path filters require `jsonb`. At the type level Drizzle 1.x no longer
+  tells `json` from `jsonb`, so a path filter on a `json` column type-checks
+  but throws at runtime:
+  `JSON path filters require a jsonb column; json columns only support whole-document filters.`
+- On Bun SQLite, Drizzle 1.x requires raw `db.transaction` callbacks to be
+  synchronous. better-drizzle's `client.transaction(async (tx) => ...)` still
+  accepts async callbacks.
+
+## 7. Typecheck
+
+```bash
+npx tsc --noEmit
+```
+
+Leftover `schema` options, `typeof schema` generics, and `manyToMany` config
+fail the typecheck.
+
+The delegate argument types are also stricter in `0.3.0`. Unknown keys are
+rejected at the top level and inside `where`, `data`, `create`, `update`,
+`select`, `include`, and `orderBy`, and so is `select` combined with
+`include` at the same level. Previously TypeScript let them through. A typo such as `{ where: { emial: '...' } }` is now a compile error.
+When a check fails, remove the key or fix its name.
+
+Other type changes the typecheck surfaces:
+
+- **`OrderType` was removed** from `better-drizzle` and `better-drizzle/zod`.
+  Write `'asc'` / `'desc'` instead of `OrderType.Asc` / `OrderType.Desc`.
+- **`cursor()` `after` / `before` accept only a cursor object or `null`.**
+  String cursors are a type error; the runtime already rejected them.
+  `nextCursor` and `previousCursor` are now typed as that cursor object (or
+  `null`), so you can pass them straight back without a cast. See
+  [cursor pagination](/docs/querying/pagination#cursor-pagination).
+- **`create({ skipDuplicates })` is typed nullable.** When `skipDuplicates` is
+  set (and not `false`), the result type includes `null`, matching the runtime
+  result for a skipped insert. Handle the `null` case.
+- **`update()` and `delete()` return `ThrowingWriteResult`.** The type no
+  longer exposes `.explain()`, which writes never supported at runtime.
+  `.throw()` is unchanged.
+
+## Breaking plugin API changes
+
+- **`better-drizzle/rules`: `mergeRules` was removed.** Use
+  `merge({ extends, rules })`. `extends` takes one config or an array applied
+  in order, and `rules` holds overrides applied last. Falsy entries in
+  `extends` are skipped. See [rules](/docs/plugins/rules).
+
+```ts
+// [!code --:1]
+rules(mergeRules(safe(), { noRawMutation: 'warn' }));
+// [!code ++:1]
+rules(merge({ extends: [safe()], rules: { noRawMutation: 'warn' } }));
+```
+
+
+## Not supported with Drizzle 1.x
+
+better-drizzle cannot load or filter by relations with a relation-level
+`where`, or by `one` relations declared through a junction. Loading one
+throws `Relation "x" on "t" cannot be loaded: ...`, and filtering through one
+throws `... cannot be filtered: ...`. They still work
+with Drizzle's own `db.query` API on the same `db`. See
+[limitations](/docs/guides/limitations).
+
+## Plugin authors
+
+- `ctx.schema` in `setup`, hooks, transforms, and extensions is the relations
+  config. See step 4.
+- Declare typed per-table model extensions with an interface extending
+  `ModelExtensionTypeResolver`. Generic function resolvers still work, but
+  with Drizzle 1.x types they can hit `Type instantiation is excessively deep`
+  (TS2589). See [writing plugins](/docs/plugins/writing-plugins).
+- `config.requires.columns` now enforces `optional` and `type`. An `optional`
+  column may be missing (it used to fail bootstrap anyway), and a `type` that
+  does not match the column fails bootstrap with
+  `PLUGIN_REQUIRED_COLUMN_TYPE`; `type` used to be informational. See
+  [setup and fail-fast requirements](/docs/plugins/writing-plugins#setup-and-fail-fast-requirements).
+- Plugins can add typed raw SQL options by augmenting the
+  `RawOptionsExtensions` interface of `better-drizzle`. Raw hooks receive
+  unknown options unchanged in `rawOptions`; the cache plugin's
+  `cache: { invalidate }` raw option uses this.
+- `better-drizzle/zod` needs a Zod version with Zod 4-compatible schema types.
+  The peer range is `^3.25.0 || ^4.0.0`.

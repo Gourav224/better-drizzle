@@ -141,6 +141,8 @@ A column named in `models` must exist on that model, or `better()` throws `PLUGI
 
 ## Fixed clock in tests
 
+<Since version="0.3.0" />
+
 `now` replaces `new Date()`. It runs once per write, so `createdAt` and `updatedAt` from one `create` are identical.
 
 ```ts

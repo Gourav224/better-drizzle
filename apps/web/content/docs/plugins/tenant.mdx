@@ -6,6 +6,8 @@ seoTitle: 'Tenant Plugin - Multi-Tenant Isolation'
 seoDescription: 'Isolate tenants in Drizzle ORM: scope every read, relation, count, sort, write, and upsert by tenant columns, fail closed, and add PostgreSQL RLS.'
 ---
 
+<Since version="0.4.0" />
+
 `better-drizzle/tenant` scopes every model that has a tenant column. A client from `db.$tenant({ organizationId })` only reads and writes rows of that tenant. The filter covers the root query and also relation loads, relation filters, `_count`, relation sorts, writes, upserts, and the lookups behind `connect`, `disconnect`, and `set`. Without a tenant, scoped models throw instead of running unfiltered.
 
 <Callout type="warn" title="Experimental">

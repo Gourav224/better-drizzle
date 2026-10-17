@@ -249,7 +249,7 @@ On PostgreSQL, path filters also require a `jsonb` column. On a `json` column th
 
 **Message:** `JSONB path mutations are only supported by PostgreSQL.` or `Native PostgreSQL array mutations are only supported by PostgreSQL.`
 
-**Why:** an update used a JSONB path mutation (dotted keys or the `{ json }` wrapper) or an array envelope (`append`, `prepend`, `remove`, `replace`, `addUnique`) on SQLite or MySQL. **Fix:** replace the whole value instead (full-document and full-array writes work on every dialect), or write the expression with Drizzle `sql`. See [JSONB](/docs/querying/jsonb#jsonb-path-mutations) and [arrays](/docs/querying/arrays).
+**Why:** an update used a JSONB path mutation (dotted keys or the `{ json }` wrapper) or an array envelope (`append`, `prepend`, `remove`, `replace`, `addUnique`) on SQLite or MySQL. **Fix:** replace the whole value instead (full-document and full-array writes work on every dialect), or write the expression with Drizzle `sql`. See [JSONB](/docs/querying/jsonb-updates) and [arrays](/docs/querying/arrays).
 
 ## Plugins
 
@@ -347,7 +347,7 @@ If a specific schema reproduces the error, open an issue with a minimal reproduc
 
 **Why:** the current release targets Drizzle ORM 1.x, with a `drizzle-orm` peer range of `>=1.0.0-rc.4 <1.0.0-rc.5`, and is tested against `1.0.0-rc.4`. It reads the `defineRelations(...)` metadata that `drizzle-orm` 0.x does not have.
 
-Projects on `drizzle-orm` 0.x stay on better-drizzle 0.2.x (peer `^0.30.0`). To move to 1.x, follow [upgrading](/docs/guides/upgrading#moving-to-drizzle-orm-1x).
+Projects on `drizzle-orm` 0.x stay on better-drizzle 0.2.x (peer `^0.30.0`). To move to 1.x, follow [upgrading](/docs/guides/upgrading-0-3).
 
 See the [support matrix](/docs/reference/support-matrix).
 

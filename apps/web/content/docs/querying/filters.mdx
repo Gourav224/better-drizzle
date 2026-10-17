@@ -260,6 +260,8 @@ Anything that produces a Drizzle `SQL` / `SQLWrapper` is accepted, so you keep t
 
 ## Reusing a filter in raw Drizzle
 
+<Since version="0.3.0" />
+
 `$where()` goes the other way: it compiles a typed `where` into a Drizzle `SQL` condition, so the same filter works in raw queries, joins, and subqueries.
 
 The condition includes every plugin scope of the model, so it selects the same rows as `findMany`: [soft-delete](/docs/plugins/soft-delete) hides deleted rows, and a [tenant](/docs/plugins/tenant)-scoped client adds its tenant filter. `deleted` and other per-call arguments do not apply. It returns `undefined` only when the `where` is empty and the model has no scope.

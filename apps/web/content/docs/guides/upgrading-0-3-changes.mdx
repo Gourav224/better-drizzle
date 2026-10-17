@@ -1,0 +1,165 @@
+---
+title: Changes in 0.3
+description: Runtime behavior changes and new features in better-drizzle 0.3 that the typecheck does not catch.
+icon: ArrowUpCircle
+seoTitle: 'better-drizzle 0.3 Behavior Changes'
+seoDescription: 'Runtime behavior changes and new features in better-drizzle 0.3 on Drizzle ORM 1.x: lazy reads, single-row writes, soft delete, upserts, and error codes.'
+---
+
+Read this after the [0.3 upgrade steps](/docs/guides/upgrading-0-3). These changes compile unchanged but can change what your code observes at runtime.
+
+## Behavior changes
+
+These do not show up in the typecheck, but they can change what your code
+observes at runtime:
+
+- **`softDelete()` filters more operations.** In `0.2.x` only `findMany`,
+  `findFirst`, `count`, and `exists` hid deleted rows. Now `findUnique`,
+  `findOne`, `paginate`, `cursor`, `update`, `updateMany`, `updateEach`,
+  `delete`, and `deleteMany` do too. An `update({ where: { id } })` that hits
+  a soft-deleted row now matches nothing; pass `deleted: 'with'` to keep the
+  old behavior. `deleteMany()` is now a soft delete instead of a physical
+  one, and returns the count of rows it marked. Writes with an empty `where`
+  stay no-ops, and `mode: 'hard'` still matches deleted rows. The
+  `requireTenantOnDelete`, `noHardDeleteOnSoftDeleteModel`, and
+  `requireHardDeleteReason` rules now also check `deleteMany`. See
+  [soft delete](/docs/plugins/soft-delete).
+
+- **Reads are lazy.** `findMany`, `findFirst`, `findOne`, `findUnique`,
+  `count`, `exists`, `paginate`, and `cursor` return lazy thenables, like
+  Drizzle's own query builders. The query and its hooks run when the result
+  is awaited (or passed to `then`, `catch`, `finally`, or `Promise.all`), and
+  at most once. A read that is created but never awaited no longer runs.
+  `.explain()` alone never runs the read. Bun's
+  `expect(...).resolves` / `.rejects` only accept native promises, so wrap
+  reads with `Promise.resolve(...)` there. See
+  [testing](/docs/guides/testing).
+- **`.explain()` output.** Cursor probes that depend on a row from the data
+  query are reported under `deferredProbes` instead of being executed, and a
+  statement that only runs under a condition carries a `condition` string.
+  See [explain](/docs/querying/explain).
+- **Text-backed timestamps.** `timestamps()` and `softDelete()` write ISO 8601
+  strings to columns whose `dataType` is a string (such as SQLite `text`
+  columns) and `Date` objects to native date columns.
+- **Failures after `COMMIT`.** When an `afterCommit` callback or an
+  `afterTransactionCommit` hook throws, better-drizzle no longer runs rollback
+  handling. There is no `ROLLBACK` on SQLite and no `afterRollback` or
+  `onTransactionError` hook. The original error is rethrown as-is, and the
+  data stays committed.
+- **`mode: 'insensitive'` on equality.** `equals`, `in`, `notIn`, and a
+  scalar `not` used to ignore `mode` and stayed case-sensitive. They now
+  compare `lower(column)` with `lower(value)` on every dialect, including
+  JSONB paths and array element predicates. A `param()` list in `in` /
+  `notIn` stays PostgreSQL-only.
+- **MySQL `upsert`.** The native `ON DUPLICATE KEY UPDATE` path is used only
+  when the table declares no unique key besides the primary key. MySQL fires
+  that clause on any unique key, so other tables use a read-then-write path
+  instead of possibly updating a different row.
+- **Native `upsert` on unique keys.** A `where` that holds only the columns of
+  one unique key, with the same values in `create`, now runs one
+  `ON CONFLICT ... DO UPDATE` statement on PostgreSQL and SQLite (and
+  `ON DUPLICATE KEY UPDATE` on MySQL when that key is the only one that can
+  match). A `where` without the primary key no longer takes the primary key
+  path when `create` omits it too: it used to insert without checking
+  `where`, and now reads first.
+- **`update()` and `delete()` change at most one row.** In `0.2.x` they ran
+  their `where` against every matching row and returned only the first. Now
+  only one row changes, on every dialect: a `where` that pins the primary key
+  or a unique key runs as a plain statement, and any other `where` is limited
+  to one row (a `LIMIT 1` subquery on PostgreSQL and SQLite; on MySQL, a
+  `SELECT ... FOR UPDATE` and a write by primary key in the active or an
+  implicit transaction). Code that relied on `update` / `delete` touching
+  several rows must use `updateMany` / `deleteMany`. The `upsert`
+  read-then-write path also updates the row it found. See
+  [update](/docs/writing/crud#update) and [delete](/docs/writing/crud#delete).
+- **`cursor()` without `orderBy` pages by primary key ascending.** Before, the
+  default direction depended on the call (descending, or ascending with
+  `before`), so the first page and later pages could walk different orders.
+  Pass an explicit `orderBy` to keep a descending order. See
+  [cursor pagination](/docs/querying/pagination#cursor-pagination).
+- **Zod and ATA cursor schemas reject string cursors.** `$zod` and `$ata`
+  cursor args schemas accept only the cursor object or `null`, matching the
+  types, so a string `after` / `before` fails validation instead of reaching
+  the runtime.
+- **Zod and ATA type numeric "number mode" columns as `number`.**
+  `numeric(..., { mode: 'number' })` and `decimal(..., { mode: 'number' })`
+  columns validate as numbers, not strings. Columns in the default string mode
+  still validate as strings. See [zod](/docs/plugins/zod) and
+  [ata](/docs/plugins/ata).
+- **`mode: 'insensitive'` works on SQLite and MySQL.** It compiled to `ILIKE`
+  everywhere, which is a syntax error outside PostgreSQL. SQLite and MySQL now
+  compile to `lower(column) LIKE lower(pattern)`; PostgreSQL keeps `ILIKE`.
+  See [string filters](/docs/querying/filters#string-filters).
+- **Raw SQL rules also check `$executeRaw`.** `requireRawComment`,
+  `requireRawTimeout`, `noRawMutation`, and `noRawWithoutTransaction` used to
+  check only `$raw`. Existing `$executeRaw` calls can now report violations.
+  See [rules](/docs/plugins/rules-reference#raw-sql).
+- **Library error codes are kept.** Operation, raw, and transaction wrappers
+  keep the `code` of a `BetterDrizzleError` thrown inside them (for example
+  from a hook or a nested call) instead of replacing it with
+  `OPERATION_ERROR`. Check `catch` blocks that matched `OPERATION_ERROR` for
+  those cases. See [errors](/docs/reference/errors#error-codes).
+- **Invalid arguments throw `INVALID_ARGS`.** Input validation failures, such
+  as unknown columns or relations, `select` with `include`, `page` with
+  `skip`, `before` with `after`, an invalid `batchSize`, duplicate `updateEach`
+  `by` values, malformed atomic, array, or JSONB mutations, relation command
+  errors, and Zod plugin parse failures, used `OPERATION_ERROR` (status 500).
+  They now use `INVALID_ARGS` (status 400). Update `catch` blocks that matched
+  `OPERATION_ERROR` for them. See [errors](/docs/reference/errors#error-codes).
+- **Success callbacks all run.** Every `afterCommit` callback, every
+  `afterTransactionCommit` hook, and every plugin `afterRaw` hook now runs even
+  when an earlier one throws; the first error is still rethrown. Previously
+  the first failure skipped the rest.
+- **`findUnique` requires a unique `where`.** The `where` must pin one row:
+  an equality on every primary key column, on a unique column, or on every
+  column of a composite unique key (a `param()` counts). Any other `where`,
+  including one where an `undefined` value dropped the key, such as
+  `{ id: undefined }`, throws `UNIQUE_WHERE_REQUIRED` before any SQL. Use
+  `findFirst` for lookups by non-unique columns.
+
+## New in 0.3.0
+
+- **[Prepared statements](/docs/querying/prepared-statements)**: mark values
+  with `param(name)`, call `.prepare(name?)` on `findUnique`, `findFirst`,
+  `findOne`, `findMany`, `count`, `exists`, `paginate`, or `cursor`, and run
+  it with `execute(values)`. Param and result types come from the read
+  (`PreparedParams` / `PreparedResult`). Plugins and `beforeQuery` run once
+  at prepare time; result hooks and intercepts run on every execution.
+- **[`better-drizzle/cache`](/docs/plugins/cache)** (experimental): versioned
+  read caching with automatic invalidation and a Redis store at
+  `better-drizzle/cache/redis`.
+- **[`better-drizzle/ata`](/docs/plugins/ata)** (experimental): JSON Schema
+  validation of operation inputs and results, built on ata-validator and
+  intended as a faster alternative to `better-drizzle/zod`. The entrypoint exports `ata` (default and
+  named), its types, and `version`; the registry, column, row, `where`, and
+  query-schema builders it uses internally are not exported.
+- **[`$where()`](/docs/querying/filters#reusing-a-filter-in-raw-drizzle)**:
+  every delegate compiles a typed `where` into a Drizzle `SQL` condition, so
+  the same filter works in raw `db.select()` queries, joins, and subqueries.
+- **[Atomic updates](/docs/writing/atomic-updates)**: `increment`,
+  `decrement`, `multiply`, `divide`, and `set` on number columns, and
+  `toggle` on boolean columns.
+- **[PostgreSQL arrays](/docs/querying/arrays)**: typed array filters,
+  `some` / `every` / `none` element predicates, and `append`, `prepend`,
+  `remove`, `replace`, and `addUnique` mutations.
+- **[JSONB paths](/docs/querying/jsonb)**: dotted path filters such as
+  `{ metadata: { 'profile.age': { gte: 18 } } }`, `in` / `notIn` on
+  string and number paths, `mode: 'insensitive'` on string paths
+  ([examples](/docs/querying/jsonb#lists-patterns-and-case)), and
+  [path mutations](/docs/querying/jsonb-updates) in `update`,
+  `updateMany`, `updateEach`, `upsert`, and `upsertMany` that compile to
+  `jsonb_set(...)`.
+- **`NULL` ordering**: `orderBy` accepts `{ direction, nulls: 'first' | 'last' }`.
+  See [reads](/docs/querying/reads#ordering-limit-and-offset).
+- **[`paginate()`](/docs/querying/pagination#offset-pagination)** accepts
+  `page` and `perPage`.
+- **`createMany` `batchSize`**: splits large inserts into one statement per
+  chunk, like `upsertMany`. See [`createMany`](/docs/writing/crud#createmany).
+- **`upsertMany` on MySQL** through `ON DUPLICATE KEY UPDATE`. See
+  [`upsertMany` details](/docs/reference/query-options#upsertmany-details).
+- **[Plugin intercepts](/docs/plugins/plugin-hooks#intercepts)**:
+  `intercept(ctx)` wraps execution after transforms, so a plugin can serve a
+  result without SQL or annotate after hooks.
+- **[Timestamps](/docs/plugins/timestamps)** `now` and `models` options: an
+  injectable clock for deterministic tests, and per-model column names or
+  `false` to turn the plugin off for a model.

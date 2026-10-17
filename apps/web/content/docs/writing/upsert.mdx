@@ -1,0 +1,149 @@
+---
+title: Upsert
+description: Create a row if it is missing or update it if it exists, for one row with upsert or many with upsertMany.
+icon: SquarePen
+seoTitle: 'Upsert and upsertMany in Drizzle'
+seoDescription: 'Create-or-update rows in Drizzle ORM with upsert and upsertMany, using native ON CONFLICT and ON DUPLICATE KEY UPDATE with batching and projections.'
+---
+
+Use `upsert` when a write is "create if missing, update if present" and you do not want to branch in your own code. Use `upsertMany` for the same thing on many rows; it compiles to native conflict handling instead of a loop.
+
+```ts tab="better-drizzle" tab-group="orm"
+const user = await client.users.upsert({
+	where: { email: 'alice@example.com' },
+	create: {
+		email: 'alice@example.com',
+		name: 'Alice',
+		active: true,
+	},
+	update: {
+		name: 'Alice Renamed',
+	},
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+const [user] = await db
+	.insert(users)
+	.values({
+		email: 'alice@example.com',
+		name: 'Alice',
+		active: true,
+	})
+	.onConflictDoUpdate({
+		target: users.email,
+		set: { name: 'Alice Renamed' },
+	})
+	.returning();
+```
+
+## When `upsert` is one atomic statement
+
+When `where` pins the primary key, or holds only the columns of one unique key (a unique column, constraint, or non-partial unique index), and `create` sets the same values, `upsert` runs `INSERT ... ON CONFLICT (those columns) DO UPDATE` on PostgreSQL and SQLite.
+
+MySQL's `ON DUPLICATE KEY UPDATE` fires on any unique key, so there the native path is used only when the target is the table's only unique key; a unique key target also needs `create` to leave the primary key to auto-increment.
+
+Every other shape reads first, then creates or updates. That path is not atomic, so concurrent calls can hit a unique violation. An `update` that resolves to no values (empty, or every field `undefined`) also takes this path and returns the existing row unchanged.
+
+`upsert` accepts [relation commands](/docs/writing/relation-writes#upsert-follows-its-branch) in `create` and `update`.
+
+## Upsert many rows
+
+```ts tab="better-drizzle" tab-group="orm"
+import { sql } from 'drizzle-orm';
+
+const { count, data } = await client.users.upsertMany({
+	data: [
+		{ email: 'alice@example.com', name: 'Alice', active: true },
+		{ email: 'bob@example.com', name: 'Bob', active: false },
+	],
+	target: ['email'],
+	update: (ctx) => ({
+		name: ctx.excluded.name,
+		active: ctx.excluded.active,
+		updatedAt: sql`now()`,
+	}),
+	batchSize: 500,
+	select: {
+		id: true,
+		email: true,
+		name: true,
+	},
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { sql } from 'drizzle-orm';
+
+// chunk large inputs yourself (batchSize)
+const rows = await db
+	.insert(users)
+	.values([
+		{ email: 'alice@example.com', name: 'Alice', active: true },
+		{ email: 'bob@example.com', name: 'Bob', active: false },
+	])
+	.onConflictDoUpdate({
+		target: users.email,
+		set: {
+			name: sql`excluded.name`,
+			active: sql`excluded.active`,
+			updatedAt: sql`now()`,
+		},
+	})
+	.returning({ id: users.id, email: users.email, name: users.name });
+
+const count = rows.length;
+```
+
+- `target` is required: one column key (`'email'`) or an array of keys (`['tenantId', 'email']`).
+- `update` is `'all'`, a column list, an object, or a function receiving `ctx.excluded`.
+- `batchSize` splits large inputs into one statement per chunk. Chunks run one after another without an implicit transaction; wrap the call in `db.transaction(...)` when all chunks must commit together.
+
+## Update only some existing rows
+
+<Since version="0.3.0" />
+
+`where` takes a structured filter or a Drizzle `SQL` fragment. It applies to the **existing conflicting row** and decides whether it is updated; it never filters incoming inserts. PostgreSQL and SQLite support it; MySQL rejects it.
+
+```ts
+await client.users.upsertMany({
+	data: rows,
+	target: ['email'],
+	update: 'all',
+	where: { active: true }, // inactive existing users keep their values
+});
+```
+
+## Edge cases
+
+<Accordions>
+<Accordion title="upsertMany on MySQL">
+
+<Since version="0.3.0" />
+
+Compiles to `ON DUPLICATE KEY UPDATE`, which fires on any unique key. `target` must be the primary key or one unique key, and rows that set (or defaults that fill) another unique key are rejected. `where` is rejected, `data` is never returned, and `count` is the number of rows sent.
+
+</Accordion>
+<Accordion title="Invalid batchSize or update">
+
+`batchSize` must be a positive integer, otherwise the call throws `batchSize must be a positive integer.` An empty `update` throws `INVALID_ARGS`.
+
+</Accordion>
+<Accordion title="Relations and hooks">
+
+`upsertMany` supports `select` but not relation `include`, and fails fast on shapes the dialect cannot express instead of falling back to per-row loops. For plugins and hooks it is a create-style operation, like `upsert`.
+
+</Accordion>
+</Accordions>
+
+## Reference
+
+| Option | `upsert` | `upsertMany` |
+| --- | --- | --- |
+| `where` | Row to find (required) | Filter on the existing conflicting row (PostgreSQL, SQLite) |
+| `create` / `data` | Row to insert | Rows to insert |
+| `update` | Values for the existing row | `'all'`, column list, object, or `(ctx) => values` |
+| `target` | - | Conflict columns (required) |
+| `batchSize` | - | Rows per statement |
+| `select` / `include` | Both | `select` only |
+| Returns | The row | `{ count, data? }` |

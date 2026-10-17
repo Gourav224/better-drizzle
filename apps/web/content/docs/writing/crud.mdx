@@ -1,12 +1,12 @@
 ---
 title: Create, update & delete
-description: The write surface - create, createMany, update, updateMany, updateEach, delete, deleteMany, upsert, and upsertMany.
+description: Insert, change, and remove rows with create, createMany, update, updateMany, delete, and deleteMany.
 icon: SquarePen
-seoTitle: 'Create, Update, Delete & Upsert in Drizzle'
-seoDescription: 'Drizzle ORM writes with create, createMany, update, updateMany, updateEach, delete, deleteMany, upsert, and upsertMany using native SQL conflict handling.'
+seoTitle: 'Create, Update & Delete in Drizzle'
+seoDescription: 'Insert, update, and delete rows in Drizzle ORM with create, createMany, update, updateMany, delete, and deleteMany, with typed results and RETURNING.'
 ---
 
-The write methods mirror the read API and return predictable shapes. Single-row mutations return the affected row; batch mutations return a summary.
+Use these methods for everyday writes. Single-row methods return the affected row (or `null`); batch methods return `{ count, data? }`. For per-row values in one statement see [`updateEach`](/docs/writing/update-each), and for create-or-update see [upsert](/docs/writing/upsert).
 
 ## `create`
 
@@ -35,7 +35,7 @@ const [user] = await db
 
 ## `createMany`
 
-Inserts many rows in one statement and returns a batch summary:
+Inserts many rows in one statement and returns `{ count, data? }`:
 
 ```ts tab="better-drizzle" tab-group="orm"
 const {
@@ -63,7 +63,9 @@ const count = rows.length;
 const data = rows;
 ```
 
-`create` and `createMany` both support `skipDuplicates`:
+### Skip duplicates
+
+`create` and `createMany` accept `skipDuplicates`: `true`, or the column keys of the conflict target:
 
 ```ts tab="better-drizzle" tab-group="orm"
 const maybeCreated = await client.users.create({
@@ -90,6 +92,10 @@ const [maybeCreated = null] = await db
 
 With single-row `create`, a skipped insert returns `null`. With `createMany`, `count` only includes rows that were actually inserted.
 
+### Insert in chunks
+
+<Since version="0.3.0" />
+
 For large inputs, `batchSize` splits `data` into one `INSERT` per chunk so a single statement stays under driver parameter limits. `count` sums the inserted rows and `data` keeps input order. Hooks and plugins still run once per call. Chunks run one after another without an implicit transaction, the same as `upsertMany`; wrap the call in `db.transaction(...)` when all chunks must commit together. `batchSize` must be a positive integer.
 
 ```ts
@@ -104,7 +110,7 @@ const { count } = await client.users.createMany({
 
 Updates at most one matching row. The result is nullable (the target may not exist) and also exposes [`.throw()`](/docs/writing/throwing-results).
 
-When `where` matches several rows, only one of them is updated, on every dialect. Use [`updateMany`](#updatemany) to update every match. A `where` that pins the whole primary key or every column of a unique key (a unique column, a `unique()` constraint, or a non-partial `uniqueIndex()` on plain columns) runs as a plain `UPDATE`; any other `where` is limited to one row in the same statement (a `LIMIT 1` subquery on PostgreSQL and SQLite). MySQL has no `RETURNING`, so there the read and the write run in one transaction: the active one, or an implicit one when none is open. The first matching row by primary key is locked with `SELECT ... FOR UPDATE` and updated by that key, so the returned row is the one that changed. On a MySQL table without a primary key, the row is read without a lock and written with `LIMIT 1`, so a concurrent write can make the returned row differ from the changed one.
+When `where` matches several rows, only one of them is updated, on every dialect. Use [`updateMany`](#updatemany) to update every match.
 
 ```ts tab="better-drizzle" tab-group="orm"
 const updated = await client.users.update({
@@ -131,76 +137,13 @@ if (!updated) {
 }
 ```
 
-## Relation writes
-
-Single-row `create`, `update`, and `upsert` accept relation commands inside
-their data payloads, so you can attach related rows without resolving foreign
-keys yourself:
-
-```ts tab="better-drizzle" tab-group="orm"
-const post = await client.posts.create({
-	data: {
-		title: 'Connected post',
-		author: { connect: { email: 'alice@example.com' } },
-	},
-});
-
-await client.users.update({
-	where: { id: 1 },
-	data: {
-		posts: {
-			connect: [{ id: 2 }, { id: 3 }],
-			disconnect: { id: 1 },
-		},
-	},
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { and, eq, inArray } from 'drizzle-orm';
-
-const post = await db.transaction(async (tx) => {
-	// resolve the foreign key by hand
-	const [author] = await tx
-		.select({ id: users.id })
-		.from(users)
-		.where(eq(users.email, 'alice@example.com'));
-	if (!author) throw new Error('Author not found');
-
-	const [created] = await tx
-		.insert(posts)
-		.values({ title: 'Connected post', authorId: author.id })
-		.returning();
-	return created;
-});
-
-await db.transaction(async (tx) => {
-	const connected = await tx
-		.update(posts)
-		.set({ authorId: 1 })
-		.where(inArray(posts.id, [2, 3]))
-		.returning({ id: posts.id });
-	if (connected.length !== 2) throw new Error('Post not found');
-
-	// a post linked to another user is left alone
-	await tx
-		.update(posts)
-		.set({ authorId: null })
-		.where(and(eq(posts.id, 1), eq(posts.authorId, 1)));
-});
-```
-
-`connect`, `disconnect`, and `set` each have their own rules per cardinality,
-selectors must match exactly one row, and the root mutation plus every
-relation change run in one implicit transaction. `createMany`, `updateMany`,
-`updateEach`, and `upsertMany` intentionally remain scalar batch APIs.
-
-See [relation writes](/docs/writing/relation-writes) for the full command
-matrix, the failure modes, and the batch workaround.
+An update whose `data` resolves to no values (`{}`, or every field `undefined` after plugins run) skips the `UPDATE` and returns the current row, or `null` when nothing matches.
 
 ## `updateMany`
 
-Updates every matching row and returns `{ count, data? }`:
+<Since version="0.3.0" />
+
+Updates every matching row and returns `{ count, data? }`. `data` holds the updated rows:
 
 ```ts tab="better-drizzle" tab-group="orm"
 const { count, data } = await client.users.updateMany({
@@ -223,262 +166,9 @@ const count = rows.length;
 
 PostgreSQL and SQLite return complete updated rows in `data` by default using native `RETURNING`. Pass a scalar `select` to narrow those rows, for example `select: { id: true, active: true }`. Relation projections are unsupported. When no row matches, the result is `{ count: 0 }` with no `data`; MySQL always returns only `{ count }`.
 
-## `updateEach`
-
-Updates many rows with different values in a single statement. Instead of applying the same value to all matching rows (like `updateMany`), `updateEach` generates a `CASE` expression per column so each row can have its own value:
-
-```ts tab="better-drizzle" tab-group="orm"
-const { data } = await client.users.updateEach({
-	by: users.id,
-	data: [
-		{ id: 1, name: 'Alice Updated', city: 'New York' },
-		{ id: 2, name: 'Bob Updated', city: 'Chicago' },
-	],
-	update: {
-		name: (row) => row.name,
-		city: (row) => row.city,
-	},
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { inArray, sql } from 'drizzle-orm';
-
-const data = [
-	{ id: 1, name: 'Alice Updated', city: 'New York' },
-	{ id: 2, name: 'Bob Updated', city: 'Chicago' },
-];
-
-// build one CASE expression per column by hand
-const nameCase = sql.join(
-	[
-		sql`case`,
-		...data.map((row) => sql`when ${users.id} = ${row.id} then ${row.name}`),
-		sql`else ${users.name} end`,
-	],
-	sql` `,
-);
-const cityCase = sql.join(
-	[
-		sql`case`,
-		...data.map((row) => sql`when ${users.id} = ${row.id} then ${row.city}`),
-		sql`else ${users.city} end`,
-	],
-	sql` `,
-);
-
-const rows = await db
-	.update(users)
-	.set({ name: nameCase, city: cityCase })
-	.where(
-		inArray(
-			users.id,
-			data.map((row) => row.id),
-		),
-	)
-	.returning({ id: users.id });
-
-const count = rows.length;
-```
-
-This generates a single SQL statement:
-
-```sql
-UPDATE users
-SET
-  name = CASE WHEN id = 1 THEN 'Alice Updated' WHEN id = 2 THEN 'Bob Updated' ELSE name END,
-  city = CASE WHEN id = 1 THEN 'New York' WHEN id = 2 THEN 'Chicago' ELSE city END
-WHERE id IN (1, 2)
-```
-
-### Options
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `by` | `TableColumn` | Yes | Drizzle column instance used to match rows (e.g., `users.id`) |
-| `data` | `Row[]` | Yes | Source rows containing the `by` column value plus any extra fields |
-| `update` | `object` | Yes | Per-column callbacks `(row) => value \| SQL` that resolve the new value for each row |
-| `where` | `WhereArg` | No | Extra filter combined with the generated `by IN (...)` predicate |
-| `select` | `SelectInput` | No | Scalar column projection for returned rows (relation `include` not supported) |
-| `onEmpty` | `'return' \| 'throw'` | No | Behavior when `data` is empty. Defaults to `'return'` |
-| `meta` | `Meta` | No | Custom metadata forwarded to hooks |
-
-A callback can return a Drizzle `SQL` value instead of a plain value. It is placed in that row's `CASE` branch as is, so it can call SQL functions or reference columns. Returning `undefined` throws.
-
-```ts
-import { sql } from 'drizzle-orm';
-
-const { count } = await client.users.updateEach({
-	by: users.id,
-	data: [
-		{ id: 1, name: 'alice' },
-		{ id: 2, name: 'bob' },
-	],
-	update: {
-		name: (row) => sql`upper(${row.name})`,
-		city: () => sql`coalesce(${users.city}, 'Unknown')`,
-	},
-});
-```
-
-### Return type
-
-`updateEach` returns `Promise<BatchResult<T>>`:
-
-```ts
-{
-  count: number;   // number of rows affected
-  data?: T[];      // returned rows when `select` is provided and driver supports RETURNING
-}
-```
-
-### Using `where` with `updateEach`
-
-Combine a `where` filter with the `by` column to scope which rows are eligible for update:
-
-```ts tab="better-drizzle" tab-group="orm"
-const { data } = await client.users.updateEach({
-	by: users.id,
-	data: [
-		{ id: 1, name: 'Alice' },
-		{ id: 2, name: 'Bob' },
-	],
-	update: { name: (row) => row.name },
-	where: { active: true }, // only update active users
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { and, eq, inArray, sql } from 'drizzle-orm';
-
-const data = [
-	{ id: 1, name: 'Alice' },
-	{ id: 2, name: 'Bob' },
-];
-
-const rows = await db
-	.update(users)
-	.set({
-		name: sql.join(
-			[
-				sql`case`,
-				...data.map((row) => sql`when ${users.id} = ${row.id} then ${row.name}`),
-				sql`else ${users.name} end`,
-			],
-			sql` `,
-		),
-	})
-	.where(
-		and(
-			inArray(
-				users.id,
-				data.map((row) => row.id),
-			),
-			eq(users.active, true), // only update active users
-		),
-	)
-	.returning({ id: users.id });
-
-const count = rows.length;
-```
-
-### Projecting results
-
-Use `select` to return specific scalar columns after the update:
-
-```ts tab="better-drizzle" tab-group="orm"
-const { data } = await client.users.updateEach({
-	by: users.id,
-	data: [
-		{ id: 1, name: 'Alice' },
-		{ id: 2, name: 'Bob' },
-	],
-	update: { name: (row) => row.name },
-	select: { id: true, name: true, email: true },
-});
-
-console.log(data); // [{ id: 1, name: 'Alice', ... }, ...]
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { inArray, sql } from 'drizzle-orm';
-
-const data = [
-	{ id: 1, name: 'Alice' },
-	{ id: 2, name: 'Bob' },
-];
-
-const rows = await db
-	.update(users)
-	.set({
-		name: sql.join(
-			[
-				sql`case`,
-				...data.map((row) => sql`when ${users.id} = ${row.id} then ${row.name}`),
-				sql`else ${users.name} end`,
-			],
-			sql` `,
-		),
-	})
-	.where(
-		inArray(
-			users.id,
-			data.map((row) => row.id),
-		),
-	)
-	.returning({ id: users.id, name: users.name, email: users.email });
-
-console.log(rows); // [{ id: 1, name: 'Alice', ... }, ...]
-```
-
-### Empty input handling
-
-By default, passing an empty `data` array returns `{ count: 0 }`. Set `onEmpty: 'throw'` to raise an error instead:
-
-```ts
-// Returns { count: 0 }
-await client.users.updateEach({
-	by: users.id,
-	data: [],
-	update: { name: (row) => row.name },
-});
-
-// Throws BetterDrizzleError
-await client.users.updateEach({
-	by: users.id,
-	data: [],
-	update: { name: (row) => row.name },
-	onEmpty: 'throw',
-});
-```
-
-### Duplicate detection
-
-`updateEach` rejects duplicate `by` values in the `data` array. Each row must have a unique match column value:
-
-```ts
-// Throws - duplicate id values
-await client.users.updateEach({
-	by: users.id,
-	data: [
-		{ id: 1, name: 'Alice' },
-		{ id: 1, name: 'Bob' }, // duplicate!
-	],
-	update: { name: (row) => row.name },
-});
-```
-
-### When to use `updateEach` vs `updateMany`
-
-| Use `updateMany` when | Use `updateEach` when |
-| --- | --- |
-| All matching rows should have the **same** value | Each row needs a **different** value |
-| A simple `WHERE` filter is sufficient | You need per-row logic via callbacks |
-| You don't need to return updated rows | You want to `select` and return specific columns |
-
 ## `delete`
 
-Deletes at most one matching row and returns it (nullable, with `.throw()`). When `where` matches several rows, only one is deleted (on MySQL, the same locked read in a transaction as [`update`](#update)); use [`deleteMany`](#deletemany) to delete every match:
+Deletes at most one matching row and returns it (nullable, with `.throw()`). When `where` matches several rows, only one is deleted; use [`deleteMany`](#deletemany) to delete every match:
 
 ```ts tab="better-drizzle" tab-group="orm"
 const deleted = await client.users.delete({
@@ -518,105 +208,22 @@ const count = rows.length;
 
 On PostgreSQL and SQLite, `data` contains the deleted rows, or the scalar fields requested by `select`, from native `RETURNING`. Empty results omit `data`. MySQL returns only `{ count }`. Relation projections are unsupported.
 
-## `upsert`
+## Write relations
 
-"Create if missing, update if present" - without branching in your own code:
+`create`, `update`, and `upsert` accept `connect`, `disconnect`, and `set` inside `data`, so you attach related rows without resolving foreign keys yourself:
 
-```ts tab="better-drizzle" tab-group="orm"
-const user = await client.users.upsert({
-	where: { email: 'alice@example.com' },
-	create: {
-		email: 'alice@example.com',
-		name: 'Alice',
-		active: true,
-	},
-	update: {
-		name: 'Alice Renamed',
+```ts
+const post = await client.posts.create({
+	data: {
+		title: 'Connected post',
+		author: { connect: { email: 'alice@example.com' } },
 	},
 });
 ```
 
-```ts tab="Drizzle" tab-group="orm"
-const [user] = await db
-	.insert(users)
-	.values({
-		email: 'alice@example.com',
-		name: 'Alice',
-		active: true,
-	})
-	.onConflictDoUpdate({
-		target: users.email,
-		set: { name: 'Alice Renamed' },
-	})
-	.returning();
-```
+See [relation writes](/docs/writing/relation-writes) for every command, its rules, and the raw Drizzle equivalent.
 
-`upsert` is usually cleaner than "find, then branch, then write" when the behavior is genuinely upsert-shaped.
-
-When `where` pins the primary key, or holds only the columns of one unique key (a unique column, constraint, or non-partial unique index), and `create` sets the same values, `upsert` runs one atomic statement: `INSERT ... ON CONFLICT (those columns) DO UPDATE` on PostgreSQL and SQLite. MySQL's `ON DUPLICATE KEY UPDATE` fires on any unique key, so there it is used only when the target is the table's only unique key, and a unique key target also needs an insert that leaves the primary key to auto-increment. Every other shape reads first, then creates or updates; that path is not atomic, so concurrent calls can hit a unique violation.
-
-## `upsertMany`
-
-`where` accepts a structured filter or Drizzle `SQL` and controls whether the existing conflicting row is updated. It does not filter incoming inserts. PostgreSQL and SQLite support it; MySQL rejects it.
-
-For bulk create-or-update flows, use `upsertMany` instead of looping over `upsert()`:
-
-```ts tab="better-drizzle" tab-group="orm"
-import { sql } from 'drizzle-orm';
-
-const { count, data } = await client.users.upsertMany({
-	data: [
-		{ email: 'alice@example.com', name: 'Alice', active: true },
-		{ email: 'bob@example.com', name: 'Bob', active: false },
-	],
-	target: ['email'],
-	update: (ctx) => ({
-		name: ctx.excluded.name,
-		active: ctx.excluded.active,
-		updatedAt: sql`now()`,
-	}),
-	batchSize: 500,
-	select: {
-		id: true,
-		email: true,
-		name: true,
-	},
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { sql } from 'drizzle-orm';
-
-// chunk large inputs yourself (batchSize)
-const rows = await db
-	.insert(users)
-	.values([
-		{ email: 'alice@example.com', name: 'Alice', active: true },
-		{ email: 'bob@example.com', name: 'Bob', active: false },
-	])
-	.onConflictDoUpdate({
-		target: users.email,
-		set: {
-			name: sql`excluded.name`,
-			active: sql`excluded.active`,
-			updatedAt: sql`now()`,
-		},
-	})
-	.returning({ id: users.id, email: users.email, name: users.name });
-
-const count = rows.length;
-```
-
-`upsertMany` is designed around native conflict handling, not userland loops.
-
-- `target` is required: one column key (`'email'`) or an array of keys (`['tenantId', 'email']`)
-- `update` can be `'all'`, a column list, an object, or a function
-- `batchSize` chunks large inserts without changing the API. It must be a positive integer, otherwise the call throws `batchSize must be a positive integer.`
-- `where` accepts structured filters or SQL conflict-update predicates (not on MySQL)
-- on MySQL it compiles to `ON DUPLICATE KEY UPDATE`, which fires on any unique key, so `target` must be the primary key or a unique key and rows cannot set another unique key; `data` is never returned there
-- relation `include` is intentionally not supported
-
-## Projecting write results
+## Project write results
 
 `create`, `update`, `delete`, `upsert`, `createMany`, `updateEach`, and `upsertMany` can project results. `updateEach` and `upsertMany` support `select`; the others support `select` and `include`:
 
@@ -636,13 +243,38 @@ const [user] = await db
 //    ^? { id: number; email: string }
 ```
 
-## Notes
+## Edge cases
 
-- `createMany`, `updateMany`, `updateEach`, and `deleteMany` return a `{ count, data? }` summary, not individual rows.
-- `upsertMany` also returns `{ count, data? }`.
-- `update` and `delete` are nullable by default because the target row may not exist - handle `null`, or call `.throw()`.
-- Returning affected rows (`data`) depends on the driver supporting `RETURNING`.
-- `updateEach` is native-first - it generates a single `UPDATE ... CASE` statement instead of per-row loops.
-- `updateEach` rejects duplicate `by` values in the input data.
-- `upsertMany` is intentionally native-first and fails fast on shapes the dialect cannot express instead of degrading to slow per-row loops.
-- Need lifecycle behavior on writes - timestamps, soft delete, audit trails? That belongs in [plugins](/docs/plugins/overview) or [hooks](/docs/advanced/hooks), not duplicated per call.
+<Accordions>
+<Accordion title="How update and delete pick one row">
+
+A `where` that pins the whole primary key or every column of a unique key (a unique column, a `unique()` constraint, or a non-partial `uniqueIndex()` on plain columns) runs as a plain `UPDATE` / `DELETE`. Any other `where` is limited to one row in the same statement: a `LIMIT 1` subquery on PostgreSQL and SQLite.
+
+MySQL has no `RETURNING`, so the read and the write run in one transaction: the active one, or an implicit one when none is open. The first matching row by primary key is locked with `SELECT ... FOR UPDATE` and written by that key, so the returned row is the one that changed. On a MySQL table without a primary key, the row is read without a lock and written with `LIMIT 1`, so a concurrent write can make the returned row differ from the changed one.
+
+</Accordion>
+<Accordion title="Returned rows depend on RETURNING">
+
+PostgreSQL and SQLite return rows through native `RETURNING`. MySQL returns only `{ count }` from `createMany`, `updateMany`, and `deleteMany`. Empty results omit `data`.
+
+</Accordion>
+<Accordion title="Lifecycle behavior">
+
+Timestamps, soft delete, and audit trails belong in [plugins](/docs/plugins/overview) or [hooks](/docs/advanced/hooks), not in each call.
+
+</Accordion>
+</Accordions>
+
+## Reference
+
+| Method | Writes | Returns | `select` / `include` |
+| --- | --- | --- | --- |
+| `create` | one row | the row, or `null` when `skipDuplicates` skips it | both |
+| `createMany` | many rows | `{ count, data? }` | both |
+| `update` | at most one row | the row or `null`, with `.throw()` | both |
+| `updateMany` | every match | `{ count, data? }` | scalar `select` |
+| `updateEach` | listed rows, per-row values | `{ count, data? }` | scalar `select` |
+| `delete` | at most one row | the row or `null`, with `.throw()` | both |
+| `deleteMany` | every match | `{ count, data? }` | scalar `select` |
+| `upsert` | one row | the row | both |
+| `upsertMany` | many rows | `{ count, data? }` | scalar `select` |

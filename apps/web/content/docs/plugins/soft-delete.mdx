@@ -79,6 +79,8 @@ Every option is optional. Column names are the property keys in your Drizzle tab
 
 ## What is filtered
 
+<Since version="0.4.0" />
+
 | Operation | Behavior |
 | --- | --- |
 | `findMany`, `findFirst`, `findOne`, `findUnique`, `count`, `exists` | deleted rows hidden |
@@ -101,7 +103,7 @@ await client.users.count({ deleted: 'with' });
 
 <Callout type="warn" title="Changed in 0.4.0">
 	The plugin now filters through core [model
-	scopes](/docs/plugins/writing-plugins#model-scopes). Before 0.4.0 it only
+	scopes](/docs/plugins/plugin-scopes#model-scopes). Before 0.4.0 it only
 	filtered the root query, so deleted rows appeared in `include`, relation
 	`select`, relation filters, `_count`, and relation sorts. They are hidden
 	there now, and `connect`/`set` no longer reach deleted rows. Read deleted

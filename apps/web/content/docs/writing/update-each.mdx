@@ -1,0 +1,202 @@
+---
+title: Update many rows with different values
+description: updateEach updates many rows, each with its own values, in one UPDATE ... CASE statement.
+icon: SquarePen
+seoTitle: 'Batch Updates with updateEach'
+seoDescription: 'Update many rows with different values in one SQL statement with updateEach, a CASE-based batch update for Drizzle ORM with where and select.'
+---
+
+Use `updateEach` when many rows need **different** values (a sorted list, prices from a feed, names from an import). It generates one `CASE` expression per column instead of one `UPDATE` per row. When every row gets the same value, use [`updateMany`](/docs/writing/crud#updatemany).
+
+```ts tab="better-drizzle" tab-group="orm"
+const { count } = await client.users.updateEach({
+	by: users.id,
+	data: [
+		{ id: 1, name: 'Alice Updated', city: 'New York' },
+		{ id: 2, name: 'Bob Updated', city: 'Chicago' },
+	],
+	update: {
+		name: (row) => row.name,
+		city: (row) => row.city,
+	},
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { inArray, sql } from 'drizzle-orm';
+
+const data = [
+	{ id: 1, name: 'Alice Updated', city: 'New York' },
+	{ id: 2, name: 'Bob Updated', city: 'Chicago' },
+];
+
+// build one CASE expression per column by hand
+const nameCase = sql.join(
+	[
+		sql`case`,
+		...data.map((row) => sql`when ${users.id} = ${row.id} then ${row.name}`),
+		sql`else ${users.name} end`,
+	],
+	sql` `,
+);
+const cityCase = sql.join(
+	[
+		sql`case`,
+		...data.map((row) => sql`when ${users.id} = ${row.id} then ${row.city}`),
+		sql`else ${users.city} end`,
+	],
+	sql` `,
+);
+
+const rows = await db
+	.update(users)
+	.set({ name: nameCase, city: cityCase })
+	.where(
+		inArray(
+			users.id,
+			data.map((row) => row.id),
+		),
+	)
+	.returning({ id: users.id });
+
+const count = rows.length;
+```
+
+It runs a single statement:
+
+```sql
+UPDATE users
+SET
+  name = CASE WHEN id = 1 THEN 'Alice Updated' WHEN id = 2 THEN 'Bob Updated' ELSE name END,
+  city = CASE WHEN id = 1 THEN 'New York' WHEN id = 2 THEN 'Chicago' ELSE city END
+WHERE id IN (1, 2)
+```
+
+`by` is a Drizzle column instance (`users.id`), not a column key. Each `data` row must carry its `by` value.
+
+## Limit and return the updated rows
+
+`where` is combined with the generated `by IN (...)` predicate, so only eligible rows change. `select` returns scalar columns of the updated rows:
+
+```ts tab="better-drizzle" tab-group="orm"
+const { data } = await client.users.updateEach({
+	by: users.id,
+	data: [
+		{ id: 1, name: 'Alice' },
+		{ id: 2, name: 'Bob' },
+	],
+	update: { name: (row) => row.name },
+	where: { active: true }, // only active users
+	select: { id: true, name: true, email: true },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { and, eq, inArray, sql } from 'drizzle-orm';
+
+const data = [
+	{ id: 1, name: 'Alice' },
+	{ id: 2, name: 'Bob' },
+];
+
+const rows = await db
+	.update(users)
+	.set({
+		name: sql.join(
+			[
+				sql`case`,
+				...data.map((row) => sql`when ${users.id} = ${row.id} then ${row.name}`),
+				sql`else ${users.name} end`,
+			],
+			sql` `,
+		),
+	})
+	.where(
+		and(
+			inArray(
+				users.id,
+				data.map((row) => row.id),
+			),
+			eq(users.active, true),
+		),
+	)
+	.returning({ id: users.id, name: users.name, email: users.email });
+```
+
+## Compute values in SQL
+
+A callback can return a Drizzle `SQL` value. It goes into that row's `CASE` branch as is, so it can call SQL functions or reference columns:
+
+```ts
+import { sql } from 'drizzle-orm';
+
+const { count } = await client.users.updateEach({
+	by: users.id,
+	data: [
+		{ id: 1, name: 'alice' },
+		{ id: 2, name: 'bob' },
+	],
+	update: {
+		name: (row) => sql`upper(${row.name})`,
+		city: () => sql`coalesce(${users.city}, 'Unknown')`,
+	},
+});
+```
+
+Callbacks also accept [atomic updates](/docs/writing/atomic-updates), [array updates](/docs/querying/array-updates), and [JSONB path updates](/docs/querying/jsonb-updates).
+
+## Edge cases
+
+<Accordions>
+<Accordion title="Empty input">
+
+An empty `data` array returns `{ count: 0 }`. Set `onEmpty: 'throw'` to throw a `BetterDrizzleError` instead.
+
+</Accordion>
+<Accordion title="Duplicate by values">
+
+Each row must have a unique `by` value. Duplicates throw before any SQL runs:
+
+```ts
+// Throws - duplicate id values
+await client.users.updateEach({
+	by: users.id,
+	data: [
+		{ id: 1, name: 'Alice' },
+		{ id: 1, name: 'Bob' },
+	],
+	update: { name: (row) => row.name },
+});
+```
+
+</Accordion>
+<Accordion title="Callbacks that return undefined">
+
+Returning `undefined` from an `update` callback throws.
+
+</Accordion>
+<Accordion title="Relations">
+
+`updateEach` is a scalar batch API: relation `include`, relation `select`, and relation commands are rejected.
+
+</Accordion>
+</Accordions>
+
+## Reference
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `by` | `TableColumn` | Yes | Drizzle column instance used to match rows (e.g., `users.id`) |
+| `data` | `Row[]` | Yes | Source rows containing the `by` value plus any extra fields |
+| `update` | `object` | Yes | Per-column callbacks `(row) => value \| SQL` that resolve each row's new value |
+| `where` | `WhereArg` | No | Extra filter combined with the generated `by IN (...)` predicate |
+| `select` | `SelectInput` | No | Scalar projection for returned rows |
+| `onEmpty` | `'return' \| 'throw'` | No | Behavior when `data` is empty. Defaults to `'return'` |
+| `meta` | `Meta` | No | Custom metadata forwarded to hooks |
+
+Returns `Promise<BatchResult<T>>`: `{ count, data? }`, with `data` when `select` is set and the driver supports `RETURNING`.
+
+| Use `updateMany` when | Use `updateEach` when |
+| --- | --- |
+| All matching rows get the **same** value | Each row needs a **different** value |
+| A `WHERE` filter is enough | You need per-row logic in callbacks |

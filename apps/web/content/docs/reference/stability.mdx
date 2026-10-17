@@ -3,7 +3,7 @@ title: Stability & semver
 description: What better-drizzle considers stable in the 0.3.x line, how the unified package is versioned, and what counts as a breaking change.
 icon: ShieldCheck
 seoTitle: 'Stability & Semver Policy'
-seoDescription: 'What better-drizzle considers stable in the 0.3.x line, how the unified package is versioned, and what counts as a breaking change.'
+seoDescription: 'What better-drizzle for Drizzle ORM considers stable in each release line, how the unified package is versioned, and what counts as a breaking change.'
 ---
 
 `0.3.x` is the Drizzle ORM 1.x release line of better-drizzle.
@@ -37,7 +37,7 @@ logs, but the value is always the package version.
 - documented client methods
 - documented option names on `better()`, on each operation, and on official plugins
 - the plugin authoring API: `definePlugin`, hooks, transforms, extensions, and `operationArgs`
-- plugin operation intercepts: `intercept(ctx)` with `next()`, `annotate()`, `skipAfterHooks()`, and `params`, plus the `annotations` after hooks receive (see [intercepts](/docs/plugins/writing-plugins#intercepts))
+- plugin operation intercepts: `intercept(ctx)` with `next()`, `annotate()`, `skipAfterHooks()`, and `params`, plus the `annotations` after hooks receive (see [intercepts](/docs/plugins/plugin-hooks#intercepts))
 - the published [support matrix](/docs/reference/support-matrix) for PostgreSQL, SQLite, and MySQL
 
 ## Experimental in `0.3.x`

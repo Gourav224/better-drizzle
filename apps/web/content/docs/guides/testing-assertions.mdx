@@ -1,0 +1,142 @@
+---
+title: Test assertions
+description: Assert on hooks, request metadata, plugins, and error codes against a real database.
+icon: FlaskConical
+seoTitle: 'Asserting Hooks, Plugins & Errors'
+seoDescription: 'Test Drizzle ORM hooks, request metadata, plugins, and error codes with better-drizzle against a real in-memory database instead of a mocked client.'
+---
+
+Use these patterns once the [test setup](/docs/guides/testing) gives you a fresh client per test (`ctx`).
+
+## Testing hooks
+
+Build a second client on the test database with the hooks you want to check, capture the calls in an array, and assert on it. Hooks receive `action`, `table`, `args`, `meta`, and, in after hooks, `result`:
+
+```ts
+import { better } from 'better-drizzle';
+
+test('create fires before and after hooks', async () => {
+	const events: string[] = [];
+	const client = better(ctx.db, {
+		hooks: {
+			beforeCreate(hook) {
+				events.push(`before:${hook.action}:${hook.table}`);
+			},
+			afterCreate(hook) {
+				events.push(`after:${hook.action}:${hook.table}`);
+			},
+		},
+	});
+
+	await client.users.create({
+		data: { id: 3, email: 'carol@example.com', name: 'Carol', active: true },
+	});
+
+	expect(events).toEqual(['before:create:users', 'after:create:users']);
+});
+```
+
+The same approach checks request metadata. Scoped `meta` from `$withContext(...)` and per-call `meta` are shallow-merged, with the per-call keys winning:
+
+```ts
+const seen: unknown[] = [];
+const client = better(ctx.db, {
+	hooks: {
+		beforeCreate(hook) {
+			seen.push(hook.meta);
+		},
+	},
+});
+
+await client.$withContext({ requestId: 'req-1', tenantId: 't-1' }).users.create({
+	data: { id: 3, email: 'carol@example.com', name: 'Carol', active: true },
+	meta: { requestId: 'req-2' },
+});
+
+expect(seen).toEqual([{ requestId: 'req-2', tenantId: 't-1' }]);
+```
+
+## Testing plugins
+
+Build the client with the plugin under test and compare against `$withoutPlugins()`. `$withoutPlugins()` skips plugin hooks and transforms for that delegate. Client hooks still run.
+
+```ts
+import { definePlugin } from 'better-drizzle/plugins';
+
+test('audit plugin records creates', async () => {
+	const seen: string[] = [];
+	const audit = definePlugin({
+		id: 'test/audit',
+		hooks: {
+			afterCreate(hook) {
+				seen.push(`${hook.kind}:${hook.table}`);
+			},
+		},
+	});
+
+	const client = better(ctx.db, { plugins: [audit] });
+
+	await client.users.create({
+		data: { id: 3, email: 'carol@example.com', name: 'Carol', active: true },
+	});
+	await client.users.$withoutPlugins().create({
+		data: { id: 4, email: 'dave@example.com', name: 'Dave', active: true },
+	});
+
+	expect(seen).toEqual(['create:users']);
+});
+```
+
+For plugins that rewrite queries, such as soft delete or tenant scoping, read the stored rows back through `$withoutPlugins()` or the raw Drizzle `db` to check what the plugin actually wrote.
+
+## Asserting errors
+
+Errors raised by better-drizzle are `BetterDrizzleError` instances with a stable `code` and an HTTP-style `status`. Assert on `code`, not on the message text:
+
+```ts
+import { BetterDrizzleError, BetterDrizzleErrorCode } from 'better-drizzle';
+
+test('missing user throws RESULT_NOT_FOUND', async () => {
+	await expect(
+		ctx.client.users.findUnique({ where: { id: 999 } }).throw(),
+	).rejects.toMatchObject({
+		code: BetterDrizzleErrorCode.ResultNotFound,
+		status: 404,
+	});
+});
+
+test('rollback rejects with a rollback error', async () => {
+	const error = await ctx.client
+		.transaction(async (tx) => tx.rollback('nope'))
+		.catch((caught: unknown) => caught);
+
+	expect(error).toBeInstanceOf(BetterDrizzleError);
+	expect(error).toMatchObject({
+		code: BetterDrizzleErrorCode.TransactionRollback,
+		reason: 'nope',
+	});
+});
+```
+
+For constraint violations, use the [classification helpers](/docs/advanced/error-handling#classifying-database-errors). They work across drivers and do not depend on how the error was wrapped:
+
+```ts
+import { isUniqueViolation } from 'better-drizzle';
+
+test('duplicate email is rejected', async () => {
+	const error = await ctx.client.users
+		.create({
+			data: { id: 9, email: 'alice@example.com', name: 'Dup', active: true },
+		})
+		.catch((caught: unknown) => caught);
+
+	expect(isUniqueViolation(error)).toBe(true);
+});
+```
+
+<Callout type="warn" title="Test with the production client options">
+	When the client has hooks (including only `onError`), errors from the operation reach the caller
+	re-wrapped with code `OPERATION_ERROR`. The original message is kept. Build
+	the test client with the same `hooks` and `plugins` as production so the
+	codes you assert on are the ones callers actually see.
+</Callout>

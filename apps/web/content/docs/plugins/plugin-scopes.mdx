@@ -1,0 +1,145 @@
+---
+title: Scopes and generated columns
+description: Model scopes that filter every statement, generated columns that become optional in create inputs, and type-level resolvers.
+icon: Wrench
+seoTitle: 'Plugin Model Scopes and Generated Columns'
+seoDescription: 'Advanced Drizzle ORM plugin APIs in better-drizzle: model scopes that filter every query level, generated create columns, and type-level extension resolvers.'
+---
+
+Use these APIs when a [plugin](/docs/plugins/writing-plugins) must filter rows at every level of a query (tenancy, soft delete), fill a column on create, or type its extensions per table.
+
+## Model scopes
+
+<Since version="0.4.0" />
+
+A transform only changes the root `where`. A plugin that must filter every statement for a model - relation loads, relation filters, `_count`, relation sorts, writes, upserts, and relation-write lookups - declares a `scope`. The [tenant](/docs/plugins/tenant) and [soft-delete](/docs/plugins/soft-delete) plugins are built on it.
+
+```ts
+import { definePlugin } from 'better-drizzle';
+
+export const regions = () =>
+	definePlugin({
+		id: 'regions',
+		scope: {
+			key: 'region',
+			model: (model) =>
+				model.hasColumn('region')
+					? { columns: ['region'], immutable: true, stamp: true }
+					: undefined,
+			missing: (model) => new Error(`${model.name} needs a region`),
+			mismatch: (model, column) =>
+				new Error(`${model.name}.${column} is outside the region`),
+		},
+		extendClient: ({ withScope }) => ({
+			$inRegion: (region: string) => withScope({ region }),
+		}),
+	});
+
+const eu = client.$inRegion('eu');
+await eu.posts.findMany({ include: { comments: true } }); // both tables filtered
+```
+
+`model(model)` runs once per model at bootstrap and returns the model's scope, or `undefined` to leave it unscoped:
+
+| Field | Effect |
+| --- | --- |
+| `columns` | equality with the state values (`{ [column]: value }`) on every statement |
+| `nullable` | `columns` also match `NULL` |
+| `where` | a static filter in the structured `where` shape (`{ deletedAt: null }`) |
+| `stamp` | creates write the state values; another explicit value throws `mismatch()` |
+| `immutable` | updates cannot change `columns` to another value |
+| `upsert` | `false` leaves upserts unfiltered (soft-delete); defaults to `true` |
+
+The rest of the definition:
+
+| Field | Purpose |
+| --- | --- |
+| `key` | key of this scope in the client scope state |
+| `root(args, model)` | overrides `where` for the root rows from the operation args; return `null` to drop it, `undefined` to keep it. Nested reads always use `where` |
+| `missing(model, columns)` | error thrown before SQL when a state value is missing; return `undefined` to run unfiltered on those columns |
+| `mismatch(model, column)` | error for a stamp, immutable, or upsert-conflict violation |
+| `bypass(state)` | meta merged into operations when `$withoutPlugins()` drops a set state (the tenant plugin adds `tenantBypass`) |
+| `session(state, dialect)` | SQL statements run at the start of each transaction while the state is set; standalone operations open one (RLS `set_config`) |
+| `rawSession` | `true` also runs `session()` for raw calls |
+
+Each client carries one state value per `key`. `extendClient` receives this plugin's `scope` (the current state) and `withScope(state, meta?)`, which returns a derived client with the new state and extra default meta. A `null` state switches the `columns` filter, stamping, and immutability off while a static `where` still applies; `undefined` clears the state. The state is inherited by `$withContext()`, `extends()`, transactions, and the implicit transactions of relation writes.
+
+Hooks, transforms, intercepts, and raw hooks see the active state as `scopes`. `$where()` includes every active scope: the `columns` filter and static `where` filters. Clients without any scope plugin skip all of this and keep their previous code paths.
+
+`$withoutPlugins()` drops every scope. `$withoutPlugins({ keepScopes: true })` skips plugin hooks and transforms but keeps the scopes; the soft-delete plugin runs its inner update that way, so a soft delete keeps the tenant scope.
+
+To change the client type from the schema (for example, typed `$tenant()` values), pass an interface extending `ClientExtensionTypeResolver` as the seventh `definePlugin` generic. Better Drizzle fills in `this['schema']`, `this['meta']`, and `this['plugins']` and reads `extension`; an optional `hidden` lists table keys removed from the root client type (the tenant plugin's `strict` mode).
+
+## Generated columns
+
+<Since version="0.3.0" />
+
+A plugin that fills a column on create declares it in `generated`. Better Drizzle resolves it per model before any `setup()` runs, lists the result in `model.generated`, and makes the column optional in the input types of `create`, `createMany`, `upsert`, and `upsertMany`. The zod and ata plugins read `model.generated` too, so their create schemas accept rows without it. The plugin still fills the value itself in `beforeCreate`.
+
+```ts
+import { definePlugin, type PluginGeneratedColumns } from 'better-drizzle';
+
+const plugin = definePlugin({
+	id: 'slugs',
+	generated: {
+		column: 'slug',
+		accepts: (column) => column.dataType === 'string',
+	},
+	setup({ addHook, models }) {
+		// fill `slug` in beforeCreate for models whose `generated` lists it
+	},
+});
+
+export const slugs = () =>
+	plugin as Omit<typeof plugin, 'generated'> & {
+		generated: PluginGeneratedColumns<'slug', Record<never, never>, string>;
+	};
+```
+
+`column` is filled on every model that has it and passes `accepts`; other models are skipped. `model.generated` merges every plugin, so re-check `accepts` before filling. `models` overrides the column per table key or turns it off with `false`; an override that is missing or rejected by `accepts` fails at bootstrap. The type-level change needs the literal `PluginGeneratedColumns<Column, Models, Value>` on the returned plugin type, as above; a plain `string` column changes no types, and a column whose insert type does not accept `Value` stays required. Wrap the factory's return type in `NoInfer` when its generics have defaults, or `better(db, { plugins: [factory()] })` infers them from `AnyPlugin`.
+
+## `definePlugin` generics
+
+`definePlugin(...)` infers everything from the object you pass. Set the generics explicitly only when inference is not enough:
+
+```ts
+definePlugin<Options, ClientExtension, ModelExtension, State, OperationArgs, ModelExtensionResolver, ClientExtensionResolver>({ ... });
+```
+
+| Parameter | Types |
+| --- | --- |
+| `Options` | the `options` field |
+| `ClientExtension` | what `extendClient` returns |
+| `ModelExtension` | what `extendModel` returns |
+| `State` | `state` in hooks and transforms |
+| `OperationArgs` | the `operationArgs` map |
+| `ModelExtensionResolver` | a type-level resolver for model extensions that depend on the current table (the Zod plugin uses it for `$zod`) |
+| `ClientExtensionResolver` | a type-level resolver for client extensions that depend on the schema (see [model scopes](#model-scopes)) |
+
+A resolver is an interface extending `ModelExtensionTypeResolver`. better-drizzle fills in `this['schema']` (the relations config) and `this['name']` (the table key) for every delegate, and reads the result from `extension`:
+
+```ts
+import {
+	definePlugin,
+	type ModelExtensionTypeResolver,
+	type PluginState,
+} from 'better-drizzle';
+
+interface TableNameExtension extends ModelExtensionTypeResolver {
+	readonly extension: { readonly tableName: this['name'] };
+}
+
+export const tableName = definePlugin<
+	unknown,
+	Record<never, never>,
+	Record<never, never>,
+	PluginState,
+	Record<never, never>,
+	TableNameExtension
+>({
+	id: 'table-name',
+	extendModel: ({ model }) => ({ tableName: model.name }) as never,
+});
+
+// client.users.tableName is typed as 'users'
+```

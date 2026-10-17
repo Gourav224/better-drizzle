@@ -1,0 +1,148 @@
+---
+title: Tracing
+description: Correlate requests through meta, time transactions, and emit OpenTelemetry spans from hooks.
+icon: Activity
+seoTitle: 'Drizzle ORM Tracing and OpenTelemetry'
+seoDescription: 'Trace Drizzle ORM operations: correlate requests with $withContext meta, time transactions and retries, and emit OpenTelemetry spans from better-drizzle hooks.'
+---
+
+Use these recipes when database work must show up in request traces. They reuse the `WeakMap` timer pattern from [logging](/docs/guides/observability#query-logging-with-duration).
+
+## Request correlation
+
+Pass a request id in `meta` and every hook sees it. `$withContext(...)` sets it once per request instead of on every call:
+
+```ts
+export const handle = async (request: Request) => {
+	const scoped = client.$withContext({
+		requestId: request.headers.get('x-request-id') ?? crypto.randomUUID(),
+	});
+
+	const user = await scoped.users.findUnique({ where: { id: 1 } });
+	const { count } = await scoped.posts.updateMany({
+		where: { authorId: 1 },
+		data: { archived: true },
+	});
+
+	return Response.json({ user, archived: count });
+};
+```
+
+The scoped `meta` reaches CRUD hooks, `onError`, raw hooks, and transaction hooks, including operations on the transaction client. Per-call `meta` and `transaction(..., { meta })` are shallow-merged on top, so a single call can add or override keys. See [framework integration](/docs/guides/frameworks) for middleware in Next.js, Hono, Express, and Fastify.
+
+## OpenTelemetry spans
+
+The same keys work for spans. This example uses `@opentelemetry/api` and leaves exporting to whatever SDK your application already sets up:
+
+```ts title="lib/db-tracing.ts"
+import { type Span, SpanStatusCode, trace } from '@opentelemetry/api';
+import type { BetterDrizzleError } from 'better-drizzle';
+
+const tracer = trace.getTracer('app-db');
+const spans = new WeakMap<object, Span>();
+
+type OperationContext = { action: string; table: string; args: unknown };
+
+export const startSpan = (ctx: OperationContext) => {
+	const span = tracer.startSpan(`${ctx.action} ${ctx.table}`, {
+		attributes: {
+			'db.system.name': 'postgresql',
+			'db.collection.name': ctx.table,
+			'db.operation.name': ctx.action,
+		},
+	});
+
+	spans.set(ctx.args as object, span);
+};
+
+export const endSpan = (ctx: OperationContext) => {
+	const span = spans.get(ctx.args as object);
+	if (!span) return;
+
+	spans.delete(ctx.args as object);
+	span.end();
+};
+
+export const failSpan = (ctx: OperationContext & { error: unknown }) => {
+	const span = spans.get(ctx.args as object);
+	if (!span) return;
+
+	const error = ctx.error as BetterDrizzleError;
+	spans.delete(ctx.args as object);
+	span.recordException(error);
+	span.setAttribute('error.type', error.code);
+	span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+	span.end();
+};
+```
+
+```ts title="lib/db.ts"
+import { endSpan, failSpan, startSpan } from './db-tracing';
+
+export const client = better(db, {
+	hooks: {
+		beforeQuery: startSpan,
+		afterQuery: endSpan,
+		beforeCreate: startSpan,
+		afterCreate: endSpan,
+		beforeUpdate: startSpan,
+		afterUpdate: endSpan,
+		beforeDelete: startSpan,
+		afterDelete: endSpan,
+		onError: failSpan,
+	},
+});
+```
+
+- `tracer.startSpan(...)` uses the active context as the parent. With a context manager registered (the Node SDK registers one), database spans nest under the current request span.
+- The attribute names follow the OpenTelemetry database semantic conventions. Match the version your backend expects, and set `db.system.name` to your database.
+- For raw SQL, key the span by `ctx.rawOptions` and add `'db.query.text': ctx.query`. For transactions, key it by `ctx.client`.
+- `onError` also fires for `.throw()` after a read has already finished. By then the span has ended and been removed from the map, so `failSpan` returns early.
+
+## Transaction lifecycle
+
+The four transaction hooks give you start, commit, rollback, and failure. For one transaction, all of them receive the same `ctx.client` (the transaction client), which keys the timer:
+
+```ts
+const txStarted = new WeakMap<object, number>();
+
+const txElapsed = (key: object) => {
+	const at = txStarted.get(key);
+	txStarted.delete(key);
+	return at === undefined ? undefined : performance.now() - at;
+};
+
+export const client = better<typeof relations, Meta>(db, {
+	hooks: {
+		beforeTransaction(ctx) {
+			txStarted.set(ctx.client, performance.now());
+		},
+		afterTransactionCommit(ctx) {
+			console.info('tx commit', {
+				name: ctx.name,
+				depth: ctx.depth,
+				attempt: ctx.attempt,
+				ms: txElapsed(ctx.client),
+				requestId: ctx.meta?.requestId,
+			});
+		},
+		onTransactionError(ctx) {
+			console.error('tx error', { name: ctx.name, error: ctx.error });
+		},
+		afterTransactionRollback(ctx) {
+			console.warn('tx rollback', {
+				name: ctx.name,
+				depth: ctx.depth,
+				attempt: ctx.attempt,
+				reason: ctx.reason instanceof Error ? ctx.reason.message : ctx.reason,
+				ms: txElapsed(ctx.client),
+			});
+		},
+	},
+});
+```
+
+- `depth` is `1` for the outer transaction and higher for savepoints.
+- `attempt` starts at `1` and goes up with each [retry](/docs/advanced/transactions). Each attempt gets its own transaction client, so each is timed separately.
+- When the callback throws, `onTransactionError` fires first, then `afterTransactionRollback`. An explicit `tx.rollback(reason)` fires only `afterTransactionRollback`, with a `BetterDrizzleTransactionRollbackError` as `reason`.
+- Operations inside the transaction still go through the CRUD hooks, with `ctx.isInTransaction` set to `true`.

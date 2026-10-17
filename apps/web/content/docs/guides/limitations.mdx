@@ -58,24 +58,21 @@ const rows = await db
 
 ## Transforms apply to the root query only
 
-Plugin `transform()` runs once per operation, on the root query. Relation loads from `include` or relation `select`, and `_count` projections, are built by the batched loader and do not pass through transforms. A plugin that adds a `where` condition, such as tenant scoping or soft-delete visibility, does not add it to nested relations.
+Plugin `transform()` runs once per operation, on the root query. Relation loads from `include` or relation `select`, and `_count` projections, are built by the batched loader and do not pass through transforms, so a `where` added by a transform does not reach nested relations.
 
-Filter nested relations explicitly when it matters:
+Plugins that must filter every level declare a [model scope](/docs/plugins/plugin-scopes#model-scopes) instead. Since 0.4.0, `better-drizzle/soft-delete` and `better-drizzle/tenant` are model scopes, so nested reads (include, relation select and filters, `_count`, relation sorts) hide deleted rows and other tenants' rows. A custom plugin that only uses `transform()` should filter nested relations explicitly:
 
 ```ts
 const users = await client.users.findMany({
 	include: {
-		posts: { where: { deletedAt: null } },
+		posts: { where: { archivedAt: null } },
 	},
 });
 ```
 
 ## Soft delete coverage
 
-`better-drizzle/soft-delete` filters every read and every update or delete with a `where`, and turns `delete` / `deleteMany` into updates. Two gaps remain:
-
-- `upsert` and `upsertMany` are not filtered, because hiding a deleted row there would turn its update into a duplicate insert
-- relations in `include` / `select` and `_count` are not filtered, see [above](#transforms-apply-to-the-root-query-only)
+`better-drizzle/soft-delete` filters every read and every update or delete with a `where`, including nested reads, `connect`, and `set` lookups, and turns `delete` / `deleteMany` into updates. The `deleted` argument controls only the root rows; nested reads always hide deleted rows. One gap remains: `upsert` and `upsertMany` are not filtered, because hiding a deleted row there would turn its update into a duplicate insert.
 
 See [soft delete](/docs/plugins/soft-delete#what-is-filtered) for the full table.
 

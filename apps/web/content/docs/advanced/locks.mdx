@@ -7,13 +7,11 @@ seoDescription: 'Row-level locking in Drizzle ORM with FOR UPDATE, FOR SHARE, SK
 dialects: [postgresql, mysql]
 ---
 
-Row locks let you control concurrent access to rows during reads.
-Better Drizzle wraps Drizzle's `FOR UPDATE`, `FOR SHARE`, and related clauses behind a typed `lock` option on every read helper.
+Use a row lock when a read decides a write that must not race another transaction: claiming a job, reserving stock, moving money. The `lock` option on every read helper wraps Drizzle's `FOR UPDATE`, `FOR SHARE`, and related clauses.
 
-Locks are supported on **PostgreSQL** and **MySQL** only.
-SQLite does not support row-level locking and will throw if you try.
+Locks are supported on **PostgreSQL** and **MySQL**. SQLite has no row-level locking and throws `LOCK_NOT_SUPPORTED`. For complete patterns (job queues, cursor pages, includes, lock errors), see [locking patterns](/docs/advanced/lock-patterns).
 
-## Basic locked read
+## Lock rows in a read
 
 The simplest form is a string shorthand:
 
@@ -36,9 +34,7 @@ const activeUsers = await db
 
 This generates `SELECT ... FOR UPDATE`.
 
-## Object form
-
-The full form gives you access to all lock options:
+The object form gives access to every option:
 
 ```ts tab="better-drizzle" tab-group="orm"
 const users = await client.users.findMany({
@@ -59,22 +55,6 @@ const activeUsers = await db
 	.where(eq(users.active, true))
 	.for('update', { skipLocked: true });
 ```
-
-## Lock modes
-
-| Mode | SQL (PostgreSQL) | SQL (MySQL) |
-| --- | --- | --- |
-| `'update'` | `FOR UPDATE` | `FOR UPDATE` |
-| `'share'` | `FOR SHARE` | `FOR SHARE` |
-| `'noKeyUpdate'` | `FOR NO KEY UPDATE` | not supported |
-| `'keyShare'` | `FOR KEY SHARE` | not supported |
-
-<Dialect only="postgresql">
-
-`noKeyUpdate` and `keyShare` are PostgreSQL-specific.
-Using them on MySQL throws `LOCK_NOT_SUPPORTED`.
-
-</Dialect>
 
 ## `skipLocked` and `noWait`
 
@@ -180,22 +160,6 @@ Duplicate table references (by database name) are deduplicated automatically.
 
 </Dialect>
 
-## Which methods accept `lock`?
-
-Locks work on every read helper that accepts `QueryArgs`:
-
-| Method | Accepts `lock` |
-| --- | --- |
-| `findMany` | Yes |
-| `findFirst` | Yes |
-| `findOne` | Yes |
-| `findUnique` | Yes |
-| `paginate` | Yes |
-| `cursor` | Yes |
-| `count` | No |
-| `exists` | No |
-| all write operations | No |
-
 ## Enforcing transaction-only locks
 
 Outside a transaction, the lock is released as soon as the statement finishes, so it protects nothing.
@@ -225,187 +189,41 @@ await client.transaction(async (tx) => {
 });
 ```
 
-## Locked reads inside transactions
+## Reference
 
-The most common pattern is combining locks with transactions for atomic read-then-write:
+### Lock modes
 
-```ts tab="better-drizzle" tab-group="orm"
-await client.transaction(async (tx) => {
-	const job = await tx.jobs.findFirst({
-		where: { status: 'pending' },
-		lock: {
-			mode: 'update',
-			noWait: true,
-		},
-	});
+| Mode | SQL (PostgreSQL) | SQL (MySQL) |
+| --- | --- | --- |
+| `'update'` | `FOR UPDATE` | `FOR UPDATE` |
+| `'share'` | `FOR SHARE` | `FOR SHARE` |
+| `'noKeyUpdate'` | `FOR NO KEY UPDATE` | not supported |
+| `'keyShare'` | `FOR KEY SHARE` | not supported |
 
-	if (!job) return null;
+<Dialect only="postgresql">
 
-	await tx.jobs.update({
-		where: { id: job.id },
-		data: { status: 'processing' },
-	});
+`noKeyUpdate` and `keyShare` are PostgreSQL-specific.
+Using them on MySQL throws `LOCK_NOT_SUPPORTED`.
 
-	return job;
-});
-```
+</Dialect>
 
-```ts tab="Drizzle" tab-group="orm"
-import { eq } from 'drizzle-orm';
+### Methods that accept `lock`
 
-await db.transaction(async (tx) => {
-	const [job] = await tx
-		.select()
-		.from(jobs)
-		.where(eq(jobs.status, 'pending'))
-		.limit(1)
-		.for('update', { noWait: true });
+Locks work on every read helper that accepts `QueryArgs`:
 
-	if (!job) return null;
+| Method | Accepts `lock` |
+| --- | --- |
+| `findMany` | Yes |
+| `findFirst` | Yes |
+| `findOne` | Yes |
+| `findUnique` | Yes |
+| `paginate` | Yes |
+| `cursor` | Yes |
+| `count` | No |
+| `exists` | No |
+| all write operations | No |
 
-	await tx
-		.update(jobs)
-		.set({ status: 'processing' })
-		.where(eq(jobs.id, job.id));
-
-	return job;
-});
-```
-
-## Cursor pagination with locks
-
-Locks propagate to cursor pagination, including the internal `hasPrevious`/`hasNext` probe queries:
-
-```ts tab="better-drizzle" tab-group="orm"
-const page = await client.users.cursor({
-	where: { active: true },
-	lock: {
-		mode: 'update',
-		skipLocked: true,
-	},
-	limit: 25,
-	after: previousCursor,
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { and, asc, desc, eq, gt, lt } from 'drizzle-orm';
-
-const limit = 25;
-const rows = await db
-	.select()
-	.from(users)
-	.where(and(eq(users.active, true), gt(users.id, previousCursor.id)))
-	.orderBy(asc(users.id))
-	.limit(limit + 1)
-	.for('update', { skipLocked: true });
-
-const data = rows.slice(0, limit);
-const hasNext = rows.length > limit;
-
-// probe for a previous page with the same lock
-const [before] = data[0]
-	? await db
-			.select({ id: users.id })
-			.from(users)
-			.where(and(eq(users.active, true), lt(users.id, data[0].id)))
-			.orderBy(desc(users.id))
-			.limit(1)
-			.for('update', { skipLocked: true })
-	: [];
-const hasPrevious = Boolean(before);
-
-// shape the cursor metadata by hand
-const page = {
-	data,
-	pagination: {
-		type: 'cursor',
-		hasNext,
-		hasPrevious,
-		nextCursor: hasNext ? { id: data[data.length - 1].id } : null,
-		previousCursor: hasPrevious ? { id: data[0].id } : null,
-	},
-};
-```
-
-## Single-relation includes with locks
-
-Locks work with a single `include: { relation: true }` on a to-one relation when `where` also filters that relation with `is`. The pair compiles to one inner join, so the lock covers both tables:
-
-```ts tab="better-drizzle" tab-group="orm"
-const posts = await client.posts.findMany({
-	where: { published: true, author: { is: { active: true } } },
-	include: { author: true },
-	lock: 'update',
-});
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { and, eq, getColumns } from 'drizzle-orm';
-
-const publishedPosts = await db
-	.select({ ...getColumns(posts), author: getColumns(users) })
-	.from(posts)
-	.innerJoin(users, eq(posts.authorId, users.id))
-	.where(and(eq(posts.published, true), eq(users.active, true)))
-	.for('update');
-```
-
-General relation loading (multiple `include` fields or relation `select`) is **intentionally rejected** when `lock` is present.
-This avoids silently dropping the lock on the relation query:
-
-```ts
-// This throws LOCK_NOT_SUPPORTED
-const posts = await client.posts.findMany({
-	include: { author: true, tags: true },
-	lock: 'update',
-});
-```
-
-## Error handling
-
-Lock acquisition failures are normalized to `BetterDrizzleError` with code `LOCK_TIMEOUT`:
-
-```ts tab="better-drizzle" tab-group="orm"
-import { BetterDrizzleError, BetterDrizzleErrorCode } from 'better-drizzle';
-
-try {
-	await client.transaction(async (tx) => {
-		return tx.users.findMany({
-			where: { id: 1 },
-			lock: {
-				mode: 'update',
-				noWait: true,
-			},
-		});
-	});
-} catch (error) {
-	if (error instanceof BetterDrizzleError && error.code === BetterDrizzleErrorCode.LockTimeout) {
-		console.log('Row is locked by another transaction');
-	}
-}
-```
-
-```ts tab="Drizzle" tab-group="orm"
-import { eq } from 'drizzle-orm';
-
-try {
-	await db.transaction(async (tx) => {
-		return tx
-			.select()
-			.from(users)
-			.where(eq(users.id, 1))
-			.for('update', { noWait: true });
-	});
-} catch (error) {
-	// PostgreSQL lock_not_available on the wrapped driver error; match each driver's code by hand
-	if ((error as { cause?: { code?: string } }).cause?.code === '55P03') {
-		console.log('Row is locked by another transaction');
-	}
-}
-```
-
-## Dialect support
+### Dialect support
 
 | Feature | PostgreSQL | MySQL | SQLite |
 | --- | --- | --- | --- |

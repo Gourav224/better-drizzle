@@ -1,0 +1,107 @@
+---
+title: JSONB updates
+description: Update nested keys of a PostgreSQL JSONB column with typed dot paths instead of rewriting the whole document.
+icon: Braces
+seoTitle: 'PostgreSQL JSONB Path Updates'
+seoDescription: 'Update nested keys of PostgreSQL JSONB columns in Drizzle ORM with typed dot paths compiled to jsonb_set, keeping the rest of the document.'
+dialects: [postgresql]
+---
+
+<Since version="0.3.0" />
+
+Use JSONB path updates when you change a few keys of a `jsonb` document and want to keep the rest of it, without a read-modify-write round trip.
+
+Set a path to a JSON value. There is no `set` envelope: the value assigned to each path is the value written there. On a column declared with `$type<T>()` (see [define the JSON shape](/docs/querying/jsonb#define-the-json-shape)), every path and value is checked against `T` at compile time.
+
+```ts tab="better-drizzle" tab-group="orm"
+await client.accounts.update({
+	where: { id },
+	data: { settings: { 'plan.tier': 'pro', 'plan.seats': 25 } },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { eq, sql } from 'drizzle-orm';
+
+await db
+	.update(accounts)
+	.set({
+		settings: sql`jsonb_set(
+			case when jsonb_typeof(${accounts.settings}) = 'object'
+				then ${accounts.settings} else '{}'::jsonb end,
+			ARRAY['plan']::text[],
+			jsonb_set(
+				jsonb_set(
+					case when jsonb_typeof(${accounts.settings} -> 'plan') = 'object'
+						then ${accounts.settings} -> 'plan' else '{}'::jsonb end,
+					ARRAY['tier']::text[], ${JSON.stringify('pro')}::jsonb, true
+				),
+				ARRAY['seats']::text[], ${JSON.stringify(25)}::jsonb, true
+			),
+			true
+		)`,
+	})
+	.where(eq(accounts.id, id));
+```
+
+Paths compile to chained `jsonb_set(..., true)` calls with JSON-encoded bound parameters.
+
+## Choose the update shape
+
+| Goal | `settings` value | Effect |
+| --- | --- | --- |
+| Set nested paths | `{ 'plan.tier': 'pro', 'plan.seats': 25 }` | Changes those keys and keeps the rest of the document. |
+| Set a top-level key | `{ json: { nickname: 'Ada' } }` | Changes `nickname` without replacing the document. |
+| Write JSON `null` | `{ json: { nickname: null } }` | Keeps the key with a JSON `null` value. |
+| Replace the document | A complete `AccountSettings` object | Replaces the whole value. An empty `{}` also replaces it. |
+
+Every shorthand key must contain a dot. A top-level key goes inside `{ json: { ... } }`; the wrapper must be the only key and contain at least one path.
+
+## Use paths in every write
+
+| Write API | Put the path assignment in |
+| --- | --- |
+| `update`, `updateMany` | `data: { settings: { 'plan.seats': 25 } }` |
+| `updateEach` | `update: { settings: (row) => ({ 'plan.seats': row.seats }) }` |
+| `upsert` | `update: { settings: { 'plan.seats': 25 } }` (conflict branch) |
+| `upsertMany` | `update: { settings: { 'plan.seats': 25 } }` or an update callback (conflict branch) |
+
+`upsertMany` with `update: 'all'` or `update: ['settings']` copies the proposed full document; use an object or a callback for a path update. `create` and `createMany` insert complete documents.
+
+## Delete keys, merge, or increment
+
+There are no structured operators for deleting a key, merging an object, incrementing a number, or changing array elements. `null` writes JSON `null` instead of deleting the key. Pass a Drizzle `sql` expression as the whole column value:
+
+```ts
+import { sql } from 'drizzle-orm';
+
+await client.accounts.update({
+	where: { id },
+	data: { settings: sql`${accounts.settings} - 'referrer'` },
+});
+```
+
+## Edge cases
+
+<Accordions>
+<Accordion title="Missing ancestors and non-object values">
+
+Missing object ancestors are created. SQL `NULL` and non-object roots become `{}`, and non-object intermediate values are replaced by `{}`. Existing keys outside the assigned paths are kept.
+
+</Accordion>
+<Accordion title="What a path can address">
+
+Paths address object keys, not array indexes. JSON objects and arrays are valid **values** at a path. A dot always separates segments, including inside the wrapper, so literal keys that contain a dot cannot be updated with this syntax. A top-level `json` key holding a plain object is reserved for the wrapper. Untyped JSONB columns accept open path names and JSON-encodable values.
+
+</Accordion>
+<Accordion title="Inputs that throw INVALID_ARGS">
+
+Mixing dotted and plain keys in one value, overlapping ancestor and descendant paths, duplicate paths, empty wrappers, nested `undefined`, and values that cannot be encoded as JSON.
+
+</Accordion>
+<Accordion title="Other dialects">
+
+Path updates are PostgreSQL-only; SQLite and MySQL throw `JSONB_MUTATION_UNSUPPORTED` before validating the shape. Full-document replacement works wherever the column supports it.
+
+</Accordion>
+</Accordions>

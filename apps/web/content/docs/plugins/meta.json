@@ -7,11 +7,16 @@
 		"uuid",
 		"soft-delete",
 		"cache",
+		"cache-keys",
+		"cache-stores",
 		"tenant",
 		"zod",
 		"ata",
 		"rules",
+		"rules-reference",
 		"eslint",
-		"writing-plugins"
+		"writing-plugins",
+		"plugin-hooks",
+		"plugin-scopes"
 	]
 }

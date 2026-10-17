@@ -1,0 +1,153 @@
+---
+title: Combining JSONB filters
+description: Use JSONB path filters with regular columns, logical operators, relation filters, every where helper, and expression indexes.
+icon: Braces
+seoTitle: 'Combine and Index JSONB Filters'
+seoDescription: 'Combine PostgreSQL JSONB path filters in Drizzle ORM with columns, OR/AND/NOT, relation filters, counts, and bulk writes, and back them with expression indexes.'
+dialects: [postgresql]
+---
+
+Use these patterns once a single [JSONB filter](/docs/querying/jsonb) works and the query needs more: other columns, alternatives, related tables, or an index. The examples use the `accounts.settings` shape from that page.
+
+## Combine paths, columns, and logic
+
+JSON filters are ordinary `where` entries, so they sit next to regular columns and inside `OR`, `AND`, and `NOT`:
+
+```ts tab="better-drizzle" tab-group="orm"
+const upsellTargets = await client.accounts.findMany({
+	where: {
+		name: { startsWith: 'A' },
+		OR: [
+			{ settings: { 'plan.trial': true } },
+			{ settings: { 'plan.tier': 'free', 'plan.seats': { gte: 3 } } },
+		],
+		NOT: { settings: { 'notifications.email.digest': 'never' } },
+	},
+	select: { id: true, name: true, settings: true },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { and, eq, gte, like, or, sql } from 'drizzle-orm';
+
+const tier = sql`${accounts.settings} #>> '{plan,tier}'`;
+const seats = sql`(${accounts.settings} #>> '{plan,seats}')::numeric`;
+const trial = sql`(${accounts.settings} #>> '{plan,trial}')::boolean`;
+const digest = sql`${accounts.settings} #>> '{notifications,email,digest}'`;
+const typeOf = (path: string) =>
+	sql`jsonb_typeof(${accounts.settings} #> ${path}::text[])`;
+
+const upsellTargets = await db
+	.select({ id: accounts.id, name: accounts.name, settings: accounts.settings })
+	.from(accounts)
+	.where(
+		and(
+			like(accounts.name, 'A%'),
+			or(
+				and(eq(typeOf('{plan,trial}'), 'boolean'), eq(trial, true)),
+				and(
+					eq(typeOf('{plan,tier}'), 'string'),
+					eq(tier, 'free'),
+					eq(typeOf('{plan,seats}'), 'number'),
+					gte(seats, 3),
+				),
+			),
+			sql`not (${typeOf('{notifications,email,digest}')} = 'string' and ${digest} = 'never')`,
+		),
+	);
+```
+
+## Filter through relations
+
+JSON paths work on related tables through `some`, `every`, `none`, and `is`. Given an `orders` table with a typed `payload` column:
+
+```ts tab="better-drizzle" tab-group="orm"
+// accounts with at least one USD order above 100
+const bigSpenders = await client.accounts.findMany({
+	where: {
+		orders: {
+			some: { payload: { json: { currency: 'USD', total: { gt: 100 } } } },
+		},
+	},
+});
+
+// orders placed by enterprise accounts
+const enterpriseOrders = await client.orders.findMany({
+	where: {
+		account: { is: { settings: { 'plan.tier': 'enterprise' } } },
+	},
+	include: { account: true },
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { and, eq, exists, getColumns, sql } from 'drizzle-orm';
+
+const bigSpenders = await db
+	.select()
+	.from(accounts)
+	.where(
+		exists(
+			db
+				.select({ one: sql`1` })
+				.from(orders)
+				.where(
+					and(
+						eq(orders.accountId, accounts.id),
+						sql`jsonb_typeof(${orders.payload} #> '{currency}') = 'string'`,
+						sql`${orders.payload} #>> '{currency}' = ${'USD'}`,
+						sql`jsonb_typeof(${orders.payload} #> '{total}') = 'number'`,
+						sql`(${orders.payload} #>> '{total}')::numeric > ${100}`,
+					),
+				),
+		),
+	);
+
+const enterpriseOrders = await db
+	.select({ ...getColumns(orders), account: getColumns(accounts) })
+	.from(orders)
+	.innerJoin(accounts, eq(accounts.id, orders.accountId))
+	.where(
+		and(
+			sql`jsonb_typeof(${accounts.settings} #> '{plan,tier}') = 'string'`,
+			sql`${accounts.settings} #>> '{plan,tier}' = ${'enterprise'}`,
+		),
+	);
+```
+
+The same filter object works in `count`, `exists`, `paginate`, `cursor`, `updateMany`, and `deleteMany`:
+
+```ts
+const onTrial = { settings: { 'plan.trial': true } } as const;
+
+const total = await client.accounts.count({ where: onTrial });
+const { count: expired } = await client.accounts.updateMany({
+	where: { ...onTrial, name: { startsWith: 'legacy-' } },
+	data: { name: 'expired' },
+});
+```
+
+## Index the paths you filter on
+
+A path filter can use a PostgreSQL expression index on the same extraction and cast. Numeric paths index the cast, string and boolean paths index the text extraction:
+
+```sql
+create index accounts_plan_seats_idx
+	on accounts (((settings #>> '{plan,seats}')::numeric));
+
+create index accounts_plan_tier_idx
+	on accounts ((settings #>> '{plan,tier}'));
+```
+
+Confirm the planner uses it with [`.explain()`](/docs/querying/explain):
+
+```ts
+const plan = await client.accounts
+	.findMany({ where: { settings: { 'plan.seats': { gte: 998 } } } })
+	.explain({ analyze: true });
+
+// Bitmap Index Scan on accounts_plan_seats_idx
+//   Index Cond: (((settings #>> '{plan,seats}'::text[]))::numeric >= '998'::numeric)
+```
+
+A GIN index on the whole column (`using gin (settings)`) speeds up containment (`@>`) but not these path comparisons.

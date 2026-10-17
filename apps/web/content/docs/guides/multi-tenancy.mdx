@@ -107,7 +107,7 @@ const scoped = client
 	`{ tenantId }` to `operation.where` only changes the root query. Relation
 	loads, relation filters, `_count`, relation writes, and raw SQL run without
 	it, and a call without the tenant runs unfiltered. Use the tenant plugin, or
-	declare a [model scope](/docs/plugins/writing-plugins#model-scopes) in your
+	declare a [model scope](/docs/plugins/plugin-scopes#model-scopes) in your
 	own plugin, when tenants must never see each other's data.
 </Callout>
 

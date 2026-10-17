@@ -169,7 +169,9 @@ const page = await db
 
 ### Ordering by relations
 
-`orderBy` also takes relation keys, nested the same way as [relation filters](/docs/querying/relations#filtering-by-related-rows):
+<Since version="0.3.0" />
+
+`orderBy` also takes relation keys, nested the same way as [relation filters](/docs/querying/relation-filters):
 
 - A `one` relation takes a field map of the related table. It can nest to any depth, and its fields accept `'asc'` / `'desc'` or `{ direction, nulls }`.
 - A `many` or many-to-many (`.through()`) relation takes `{ _count: 'asc' | 'desc' }`.

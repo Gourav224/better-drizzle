@@ -187,7 +187,7 @@ await client.accounts.findMany({
 // jsonb_typeof(settings #> '{nickname}') = 'null'
 ```
 
-A path filter set to `null` does not match documents where the key is missing. See [JSONB filters](/docs/querying/jsonb#json-null-values) for `not: null` and [missing keys](/docs/querying/jsonb#missing-keys-never-match).
+A path filter set to `null` does not match documents where the key is missing. See [JSONB filters](/docs/querying/jsonb#json-null) for `not: null` and [missing keys](/docs/querying/jsonb#missing-keys-never-match).
 
 In `data`, `null` for the whole column writes SQL `NULL`. `null` values inside the object are serialized as JSON `null`.
 
