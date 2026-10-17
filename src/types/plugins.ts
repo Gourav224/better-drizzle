@@ -886,6 +886,8 @@ export type PluginHooks<
 				'create' | 'createMany' | 'upsert' | 'upsertMany'
 		  >['data']
 		| undefined
+		// Side-effect-only hooks return nothing.
+		| void
 	>;
 	beforeDelete?(
 		context: PluginBeforeHookContext<
@@ -963,6 +965,8 @@ export type PluginHooks<
 				'update' | 'updateEach' | 'updateMany'
 		  >['data']
 		| undefined
+		// Side-effect-only hooks return nothing.
+		| void
 	>;
 	onTransactionError?(
 		context: PluginTransactionErrorHookContext<
