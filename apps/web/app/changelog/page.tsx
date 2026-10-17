@@ -109,10 +109,8 @@ function splitBody(body: string) {
 			) {
 				const next = lines[++i];
 				const match = next.match(/<summary>(.*?)<\/summary>/);
-				if (match)
-					summary = match[1]
-						.replace(/<[^>]*>/g, '')
-						.replace(/[<>]/g, '');
+				// Plain text only; React escapes it anyway.
+				if (match) summary = match[1].replace(/[<>]/g, '');
 				else text.push(next);
 			}
 			i++;
