@@ -840,6 +840,19 @@ const runBetterTransaction = async <
 			Plugins
 		> | null = null;
 		let attemptState: TransactionRuntime | null = null;
+		let callbackFailed = false;
+		let callbackError: unknown;
+		const runCallback = async (
+			client: BetterDrizzleTransactionClient<Schema, Meta, Plugins>,
+		) => {
+			try {
+				return await callback(client);
+			} catch (error) {
+				callbackFailed = true;
+				callbackError = error;
+				throw error;
+			}
+		};
 
 		if (context.dialect === 'sqlite') {
 			getDrizzleTransactionConfig(context, options);
@@ -890,7 +903,7 @@ const runBetterTransaction = async <
 					payload,
 				);
 
-				const result = await callback(attemptClient);
+				const result = await runCallback(attemptClient);
 
 				if (attemptState.abortError) throw attemptState.abortError;
 
@@ -948,7 +961,9 @@ const runBetterTransaction = async <
 
 				if (isRollbackSignal(error)) throw rollbackReason;
 				if (!shouldRetryTransaction(error, options, attempt))
-					throw normalizedError;
+					throw callbackFailed && error === callbackError
+						? error
+						: normalizedError;
 
 				await delayRetry(options, attempt);
 				continue;
@@ -993,7 +1008,7 @@ const runBetterTransaction = async <
 							payload,
 						);
 
-						const result = await callback(attemptClient);
+						const result = await runCallback(attemptClient);
 
 						if (attemptState.abortError)
 							throw attemptState.abortError;
@@ -1085,7 +1100,9 @@ const runBetterTransaction = async <
 
 			if (isRollbackSignal(error)) throw rollbackReason;
 			if (!shouldRetryTransaction(error, options, attempt))
-				throw normalizedError;
+				throw callbackFailed && error === callbackError
+					? error
+					: normalizedError;
 
 			await delayRetry(options, attempt);
 		}
