@@ -2380,6 +2380,27 @@ export const buildExistsQuery = <Schema extends AnySchema, Meta>(
 };
 
 /**
+ * MySQL has no RETURNING: an auto-increment key the insert left out comes
+ * from the driver's `insertId`, so the reload reads that row by key instead of
+ * matching every inserted value (JSON values never compare equal, and
+ * identical rows would be ambiguous).
+ */
+const withInsertId = (
+	runtime: TableRuntime,
+	data: Record<string, unknown>,
+	result: unknown,
+) => {
+	const [field] = runtime.primaryKeyFields;
+	if (runtime.primaryKeyFields.length !== 1 || data[field as string] != null)
+		return data;
+	const header = Array.isArray(result) ? result[0] : result;
+	const id = (header as { insertId?: unknown } | null)?.insertId;
+	return (typeof id === 'number' || typeof id === 'bigint') && id > 0
+		? { ...data, [field as string]: id }
+		: data;
+};
+
+/**
  * Reloads a single record from the database using its primary key values.
  * Falls back to all non-undefined fields when primary keys are not available.
  *
@@ -2508,7 +2529,11 @@ export const createRecord = async <Schema extends AnySchema, Meta>(
 	const created = await reloadRecord(
 		context,
 		tableName,
-		writeArgs.data as Record<string, unknown>,
+		withInsertId(
+			runtime,
+			writeArgs.data as Record<string, unknown>,
+			result,
+		),
 	);
 	if (!created) return null;
 	if (prepared)
