@@ -137,6 +137,11 @@ const rememberCompiledUpdate = <T extends Record<string, unknown>>(
 	return compiled;
 };
 
+const hasUpdateValues = (set: Record<string, unknown>) => {
+	for (const key in set) if (set[key] !== undefined) return true;
+	return false;
+};
+
 export const getCompiledUpdateSet = (input: unknown) =>
 	typeof input === 'object' && input !== null
 		? compiledUpdateSets.get(input)
@@ -2768,7 +2773,7 @@ export const updateRecord = async <Schema extends AnySchema, Meta>(
 			false,
 		);
 		let current = matches[0] as Record<string, unknown>;
-		if (Object.keys(prepared.scalar).length) {
+		if (hasUpdateValues(prepared.scalar)) {
 			const primaryWhere = getPrimaryKeyWhere(runtime, current);
 			const predicate = getWritePredicate(
 				context,
@@ -2814,6 +2819,11 @@ export const updateRecord = async <Schema extends AnySchema, Meta>(
 		args,
 	);
 	if (!predicate) return null;
+	if (!hasUpdateValues(set))
+		return findFirstRecord(context, tableName, {
+			...args,
+			data: undefined,
+		} as QueryArgs<Schema, BetterTableKey<Schema>, Meta>);
 	const pinned = pinsOneRow(runtime, args.where);
 
 	if (context.dialect !== 'mysql') {
@@ -3003,7 +3013,7 @@ export const updateManyRecords = async <Schema extends AnySchema, Meta>(
 		args.where,
 		args,
 	);
-	if (!predicate) return { count: 0 };
+	if (!predicate || !hasUpdateValues(set)) return { count: 0 };
 
 	const builder = context.db.update(runtime.table).set(set).where(predicate);
 	if (typeof builder.returning === 'function') {
@@ -3221,6 +3231,7 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 
 	if (
 		conflictFields &&
+		hasUpdateValues(updateData) &&
 		(context.dialect !== 'mysql' ||
 			(!setWhere && isOnlyMysqlKey(runtime, conflictFields, createData)))
 	) {
