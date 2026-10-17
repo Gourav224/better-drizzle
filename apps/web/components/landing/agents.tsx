@@ -47,8 +47,8 @@ export function Agents() {
 					Works with your agent
 				</h2>
 				<p className="text-fd-muted-foreground mt-4">
-					Install the skill once. Your agent reads the current docs and
-					writes the real API.
+					Install the skill once. Your agent reads the current docs
+					and writes the real API.
 				</p>
 				<ul className="text-fd-muted-foreground mt-8 flex flex-wrap gap-x-6 gap-y-4">
 					{AGENTS.map((agent) => (
