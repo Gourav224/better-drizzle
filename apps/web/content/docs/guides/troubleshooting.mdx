@@ -198,7 +198,8 @@ All of these come from `$raw`, `$executeRaw`, and `$rawUnsafe`. See [raw SQL](/d
 **Why:** `$raw` or `$executeRaw` received a plain string at runtime, often from calling it as a function with a pre-built string instead of using it as a tag (usually through an `any` or a cast). **Fix:**
 
 ```ts
-// Wrong: a plain string
+// Wrong: a plain string (also rejected by the types)
+// @ts-expect-error
 await client.$raw(`select * from users where id = ${id}`);
 
 // Right: a tagged template, values are bound as parameters
@@ -288,8 +289,10 @@ const scoped = client.$withContext({ tenantId: session.tenantId });
 For any other unexpected violation, read `details.rule` to find which rule fired, then change the call or configure that rule. Setting a rule to `false` or `'off'` disables it; `throwOnError: false` reports without throwing:
 
 ```ts
+import { BetterDrizzleError } from 'better-drizzle';
+
 try {
-	await client.users.deleteMany();
+	await client.users.deleteMany({});
 } catch (error) {
 	if (error instanceof BetterDrizzleError)
 		console.error(error.details?.rule, error.details?.path, error.message);

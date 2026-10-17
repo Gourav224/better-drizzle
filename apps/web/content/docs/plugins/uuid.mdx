@@ -50,14 +50,30 @@ bun add better-drizzle
 
 ## Usage
 
-```ts
+```ts title="schema.ts"
+import { pgTable, text, uuid } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+	id: uuid('id').primaryKey(), // no default: the plugin fills it
+	email: text('email').notNull(),
+	name: text('name').notNull(),
+});
+```
+
+```ts title="db.ts"
 import { better } from 'better-drizzle';
 import { uuids } from 'better-drizzle/uuid';
+import { drizzle } from 'drizzle-orm/node-postgres';
 
-const client = better(db, { plugins: [uuids()] });
+import { relations } from './relations';
+
+export const db = drizzle(process.env.DATABASE_URL!, { relations });
+export const client = better(db, { plugins: [uuids()] });
 ```
 
 ```ts tab="better-drizzle" tab-group="orm"
+import { client } from './db';
+
 const { id } = await client.users.create({
 	data: { email: 'alice@example.com', name: 'Alice' },
 });

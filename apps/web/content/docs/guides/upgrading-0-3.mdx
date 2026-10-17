@@ -58,7 +58,7 @@ steps below cover what better-drizzle needs.
 Keep tables in `schema.ts` and declare every relation in one
 `defineRelations` call:
 
-```ts title="schema.ts"
+```ts noCheck title="schema.ts"
 // [!code --:7]
 export const usersRelations = relations(users, ({ many }) => ({
 	posts: many(posts),
@@ -86,7 +86,7 @@ the same `alias`. The old `relationName` option did this job.
 
 ## 3. Pass relations to drizzle() and drop schema from better()
 
-```ts title="db.ts"
+```ts noCheck title="db.ts"
 // [!code --:3]
 import { schema } from './schema';
 const db = drizzle(pool, { schema });
@@ -111,7 +111,7 @@ relations.
 
 The client's type parameter is now the relations config:
 
-```ts
+```ts noCheck
 // [!code --:3]
 type Db = BetterDrizzleClient<typeof schema>;
 type Key = BetterTableKey<typeof schema>;
@@ -134,7 +134,7 @@ The `relations: { inferManyToMany, manyToMany }` option is removed, and
 junction tables are no longer inferred. Declare many-to-many relations with
 `.through()`:
 
-```ts
+```ts noCheck
 // [!code --:8]
 const client = better(db, {
 	schema,
@@ -224,7 +224,7 @@ Other type changes the typecheck surfaces:
   in order, and `rules` holds overrides applied last. Falsy entries in
   `extends` are skipped. See [rules](/docs/plugins/rules).
 
-```ts
+```ts noCheck
 // [!code --:1]
 rules(mergeRules(safe(), { noRawMutation: 'warn' }));
 // [!code ++:1]

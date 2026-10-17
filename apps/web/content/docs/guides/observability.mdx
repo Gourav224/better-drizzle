@@ -17,8 +17,8 @@ Hooks do not carry a timer, so you add one. The before hook and the after hook o
 ```ts title="lib/db.ts"
 import { better } from 'better-drizzle';
 
-type Meta = { requestId?: string; userId?: string };
-type OperationContext = {
+export type Meta = { requestId?: string; userId?: string };
+export type OperationContext = {
 	action: string;
 	table: string;
 	args: unknown;
@@ -31,7 +31,7 @@ const start = (ctx: OperationContext) => {
 	started.set(ctx.args as object, performance.now());
 };
 
-const elapsed = (args: unknown) => {
+export const elapsed = (args: unknown) => {
 	const at = started.get(args as object);
 	if (at === undefined) return undefined;
 
@@ -78,6 +78,8 @@ export const client = better<typeof relations, Meta>(db, {
 Use the same timer and log at a higher level above a threshold:
 
 ```ts
+import { elapsed, type OperationContext } from './lib/db';
+
 const SLOW_MS = 200;
 
 const logOperation = (ctx: OperationContext) => {
@@ -104,6 +106,7 @@ Keep argument values out of the log line. `ctx.args.where` and `ctx.args.data` o
 
 ```ts
 import { type BetterDrizzleError, better } from 'better-drizzle';
+import { elapsed, type Meta } from './lib/db';
 
 export const client = better<typeof relations, Meta>(db, {
 	hooks: {
@@ -143,6 +146,8 @@ export const client = better<typeof relations, Meta>(db, {
 `beforeRaw`, `afterRaw`, and `onRawError` wrap `$raw`, `$executeRaw`, and `$rawUnsafe`. All three receive the same `ctx.rawOptions` object for one call, so it can key the timer:
 
 ```ts
+import type { Meta } from './lib/db';
+
 const rawStarted = new WeakMap<object, number>();
 
 const rawElapsed = (key: object) => {

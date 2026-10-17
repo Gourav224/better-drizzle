@@ -50,7 +50,7 @@ To change array contents, see [array updates](/docs/querying/array-updates). To 
 
 Use Drizzle's `.array()` on any PostgreSQL column. Nothing else is needed: better-drizzle detects native array columns and switches their `where` type to the array filter.
 
-```ts title="schema.ts"
+```ts
 import { integer, pgEnum, pgTable, text, uuid } from 'drizzle-orm/pg-core';
 
 export const role = pgEnum('role', ['admin', 'editor', 'viewer']);
@@ -177,13 +177,10 @@ from the array element: numeric arrays expose comparisons, string arrays expose
 patterns and `mode`, and enum arrays keep their literal values.
 
 ```ts tab="better-drizzle" tab-group="orm"
-const posts = await client.posts.findMany({
+const rows = await client.posts.findMany({
 	where: {
-		scores: { some: { gt: 100 } },
-		ages: { every: { gte: 0 } },
-		emails: {
-			some: { endsWith: '@example.com', mode: 'insensitive' },
-		},
+		scores: { some: { gt: 100 }, every: { gte: 0 } },
+		tags: { some: { startsWith: 'drizzle', mode: 'insensitive' } },
 		flags: { none: { equals: 'archived' } },
 	},
 });
@@ -198,8 +195,10 @@ const rows = await db
 	.where(sql`
 		${posts.scores} is not null
 		and exists (select 1 from unnest(${posts.scores}) as array_element where (array_element > ${100}) is true)
-		and ${posts.ages} is not null
-		and not exists (select 1 from unnest(${posts.ages}) as array_element where (array_element >= ${0}) is not true)
+		and not exists (select 1 from unnest(${posts.scores}) as array_element where (array_element >= ${0}) is not true)
+		and exists (select 1 from unnest(${posts.tags}) as array_element where array_element ilike ${'drizzle%'})
+		and ${posts.flags} is not null
+		and not (${posts.flags} @> array[${'archived'}])
 	`);
 ```
 

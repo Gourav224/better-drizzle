@@ -124,13 +124,13 @@ Wrap the writes of a single request in one `transaction()`. Scoped metadata from
 - `tx.afterCommit(callback)`: runs side effects such as emails or queue messages only after the commit succeeds.
 
 ```ts
-const post = await db.transaction(
+const post = await client.transaction(
 	async (tx) => {
 		const created = await tx.posts.create({
 			data: { authorId: userId, title, published: false },
 		});
 
-		tx.afterCommit(() => queue.publish('post.created', { id: created.id }));
+		tx.afterCommit(() => notifySubscribers(created.id));
 		return created;
 	},
 	{ signal: request.signal, timeoutMs: 5_000 },

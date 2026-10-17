@@ -55,7 +55,7 @@ Per-call `meta` still wins on key conflicts:
 
 ```ts
 await scoped.users.create({
-	data: { name: 'Alice' },
+	data: { email: 'alice@example.com', name: 'Alice' },
 	meta: {
 		requestId: 'req_override',
 		userId: 'admin_7',

@@ -64,7 +64,7 @@ The resolved limit is `take` or `limit`. With `noUnboundedFindMany`, `allowWithL
 | `requireTimeoutForLongRunningOperation` | a `$raw`, `$rawUnsafe`, or `$executeRaw` call has no `timeoutMs`, or it is above `maxTimeoutMs` | `operations` (default `['raw', 'executeRaw', 'explain']`), `defaultTimeoutMs`, `maxTimeoutMs` |
 
 ```ts
-await db.$raw(sql`select * from reports where id = ${id}`, {
+await client.$raw(sql`select * from reports where id = ${id}`, {
 	comment: 'monthly report lookup',
 	timeoutMs: 2000,
 });
@@ -79,11 +79,11 @@ The raw rules check `$raw`, `$rawUnsafe`, and `$executeRaw`, except `noRawUnsafe
 Tenant rules read the tenant from the merged operation `meta` first, then from the transaction `context`.
 
 ```ts
-const tenantDb = db.$withContext({ tenantId: session.tenantId });
-await tenantDb.invoices.findMany({ where: { status: 'open' } });
+const tenantClient = client.$withContext({ tenantId: session.tenantId });
+await tenantClient.orders.findMany({ where: { status: 'open' } });
 
 // Background jobs that must cross tenants:
-const systemDb = db.$withContext({ system: true, reason: 'nightly billing' });
+const systemClient = client.$withContext({ system: true, reason: 'nightly billing' });
 ```
 
 | Rule | Fires when | Options |

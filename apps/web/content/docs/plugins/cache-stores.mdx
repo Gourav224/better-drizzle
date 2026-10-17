@@ -13,8 +13,6 @@ Use this page to connect the [cache plugin](/docs/plugins/cache) to Redis or to 
 `store` takes any object that implements `CacheStore`. `redis()` is one; you can write your own for another key-value service, or an in-process store for tests. The interface is part of the experimental surface and can change in a patch release.
 
 ```ts
-import type { CacheStore, CacheStoreEntry } from 'better-drizzle/cache';
-
 interface CacheStore {
 	get(keys: readonly string[]): Promise<ReadonlyArray<string | null>>;
 	set(entries: readonly CacheStoreEntry[]): Promise<void>;

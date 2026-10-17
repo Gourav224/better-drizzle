@@ -30,6 +30,8 @@ export const listPosts = ({ search, authorId, published }: Filters) =>
 ```ts tab="Drizzle" tab-group="orm"
 import { and, desc, eq, ilike } from 'drizzle-orm';
 
+type Filters = { search?: string; authorId?: number; published?: boolean };
+
 export const listPosts = ({ search, authorId, published }: Filters) =>
 	db
 		.select()

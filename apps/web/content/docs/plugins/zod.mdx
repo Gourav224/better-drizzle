@@ -156,12 +156,13 @@ await client.users.create({
 A failed parse throws a `BetterDrizzleError` with code `INVALID_ARGS` (status 400), `table` set to the schema key, and a message such as `Zod validation failed for create payload on "users".` The Zod issues are in `details`:
 
 ```ts
-{
+// error.details
+({
 	pluginId: 'better-drizzle/zod',
 	issues: [
 		{ code: 'invalid_type', message: 'Invalid input: expected string, received number', path: 'name' },
 	],
-}
+});
 ```
 
 `path` is the Zod issue path joined with `.`, for example `data.email`. The exact `message` text comes from your Zod version.

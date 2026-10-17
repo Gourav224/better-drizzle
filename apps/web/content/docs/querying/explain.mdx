@@ -168,9 +168,24 @@ console.log(stmt.appliedOptions); // { analyze: true, verbose: true }
 `.explain()` runs the plugin transform pipeline. If a plugin modifies `where`, `select`, or other args, the explained SQL reflects those changes:
 
 ```ts
-const client = better(db, {
-	plugins: [forceActivePlugin], // injects { active: true } into every findMany
+import { better } from 'better-drizzle';
+import { definePlugin } from 'better-drizzle/plugins';
+
+// Injects { active: true } into every findMany
+const forceActive = definePlugin({
+	id: 'force-active',
+	transform(operation) {
+		if (operation.kind === 'findMany')
+			operation.where = (
+				operation.where
+					? { AND: [operation.where, { active: true }] }
+					: { active: true }
+			) as typeof operation.where;
+		return operation;
+	},
 });
+
+const client = better(db, { plugins: [forceActive] });
 
 const {
 	statements: [{ sql }],

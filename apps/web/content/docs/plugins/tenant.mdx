@@ -285,7 +285,7 @@ Raw SQL cannot be filtered, so `raw` decides what scoped clients may do with `$r
 
 ```ts
 await scoped.$raw(
-	sql`select count(*) from projects where organization_id = ${orgId}`,
+	sql`select count(*) from projects where organization_id = ${organizationId}`,
 	{ tenant: 'trusted' },
 );
 ```

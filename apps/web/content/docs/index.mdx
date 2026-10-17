@@ -20,10 +20,11 @@ It is not a new ORM, and it does not try to hide Drizzle. You still define your 
 
 ```ts
 import { better } from 'better-drizzle';
+import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { relations } from './relations'; // defineRelations(schema, ...)
 
-const db = drizzle({ client: sqlite, relations });
+const db = drizzle({ client: new Database('app.db'), relations });
 const client = better(db);
 
 await client.users.upsertMany({

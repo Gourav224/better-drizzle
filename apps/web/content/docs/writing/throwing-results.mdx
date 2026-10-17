@@ -20,7 +20,7 @@ A throwing result is a `Promise<T | null>` with an extra `.throw()` method, so y
 
 ```ts tab="better-drizzle" tab-group="orm"
 // Style 1 - nullable
-const user = await client.users.findUnique({ where: { id } });
+const maybeUser = await client.users.findUnique({ where: { id } });
 //    ^? User | null
 
 // Style 2 - throw on null
@@ -32,7 +32,7 @@ const user = await client.users.findUnique({ where: { id } }).throw();
 import { eq } from 'drizzle-orm';
 
 // Style 1 - nullable
-const [user = null] = await db
+const [maybeUser = null] = await db
 	.select()
 	.from(users)
 	.where(eq(users.id, id))

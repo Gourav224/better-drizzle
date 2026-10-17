@@ -56,7 +56,7 @@ Returning `undefined` from the callback adds nothing. `extends()` modifies the c
 
 `extends()` returns the client type intersected with the extension type:
 
-```ts
+```ts title="lib/db.ts"
 const base = better(db);
 
 const helpers = (client: typeof base) => ({
@@ -79,6 +79,8 @@ The extension keys stay typed on every client derived from the extended one:
 - **The `tx` parameter of `transaction()`** keeps the extension keys.
 
 ```ts
+import { client } from './lib/db';
+
 const scoped = client.$withContext({ requestId });
 await scoped.findUserByEmail('alice@example.com');
 
@@ -112,7 +114,7 @@ Plugin extensions are applied first, so a plugin key always wins the conflict an
 
 Helpers that compose several operations can call `client.transaction(...)`. Because the callback form rebinds `client`, the same helper opens a transaction when called on the root client and a nested savepoint when called on a transaction client:
 
-```ts title="lib/db.ts"
+```ts
 const base = better(drizzle({ client: pool, relations }));
 
 const helpers = (client: typeof base) => ({
@@ -128,11 +130,8 @@ const helpers = (client: typeof base) => ({
 	},
 });
 
-export const client = base.extends(helpers);
-export type AppHelpers = ReturnType<typeof helpers>;
-```
+const client = base.extends(helpers);
 
-```ts
 // Own transaction
 await client.transferPost(10, 2);
 
@@ -147,7 +146,7 @@ await client.transaction(async (tx) => {
 
 An extension can carry values that helpers and callers both need, such as configuration, next to the helpers that use them:
 
-```ts title="lib/db.ts"
+```ts
 const base = better(drizzle({ client: pool, relations }));
 const config = { maxPageSize: 100 };
 
@@ -165,10 +164,8 @@ const helpers = (client: typeof base) => ({
 	},
 });
 
-export const client = base.extends(helpers);
-```
+const client = base.extends(helpers);
 
-```ts
 const { data, pagination } = await client.listPublished(2);
 const { maxPageSize } = client.config;
 ```

@@ -113,7 +113,9 @@ const result = client.users.$ata.create.validate(req.body);
 if (!result.valid) return reply.code(400).send(result.errors);
 
 // or hand the description to something else
-app.post('/users', { schema: { body: client.users.$ata.create.schema } }, handler);
+app.post('/users', { schema: { body: client.users.$ata.create.schema } }, async (req) =>
+	client.users.create({ data: req.body }),
+);
 ```
 
 That second line is the reason to reach for this plugin. `schema` is a plain JSON Schema object, so `JSON.stringify` of it is a complete, portable description of the table.
@@ -162,9 +164,9 @@ The where clause carries the array filters the core compiles: `has` for one elem
 An element predicate has to constrain something, which is how the core avoids a clause that silently matches every row:
 
 ```ts
-await db.posts.findMany({ where: { tags: { some: {} } } });                   // refused
-await db.posts.findMany({ where: { tags: { some: { mode: 'insensitive' } } } }); // refused
-await db.posts.findMany({ where: { tags: { some: { contains: 'a' } } } });    // fine
+await client.posts.findMany({ where: { tags: { some: {} } } });                   // refused
+await client.posts.findMany({ where: { tags: { some: { mode: 'insensitive' } } } }); // refused
+await client.posts.findMany({ where: { tags: { some: { contains: 'a' } } } });    // fine
 ```
 
 An array whose element ata cannot describe, `timestamp().array()`, is an array in the schema and a residue per entry: the clause still checks the operator shape, and the row validator judges each entry, naming the index of the one that failed.
@@ -186,7 +188,8 @@ One gap is worth stating plainly. In a `where` clause, a `Date` has no own keys 
 A failure throws the same `BetterDrizzleError` the other plugins throw, with `details.issues` in the same shape, plus a link to the page describing the code:
 
 ```ts
-{
+// error.details
+({
 	pluginId: 'better-drizzle/ata',
 	issues: [
 		{
@@ -196,7 +199,7 @@ A failure throws the same `BetterDrizzleError` the other plugins throw, with `de
 			docUrl: 'https://ata-validator.com/e/ATA1001',
 		},
 	],
-}
+});
 ```
 
 ## Notes

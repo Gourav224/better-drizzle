@@ -103,8 +103,12 @@ See [writing a plugin](/docs/plugins/writing-plugins) for the full API.
 Plugins run in array order. If two plugins transform the same operation, the earlier one runs first:
 
 ```ts
+import { softDelete } from 'better-drizzle/soft-delete';
+import { timestamps } from 'better-drizzle/timestamps';
+
+// timestamps() transforms each write before softDelete() sees it
 const client = better(db, {
-	plugins: [firstPlugin, secondPlugin],
+	plugins: [timestamps(), softDelete()],
 });
 ```
 

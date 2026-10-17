@@ -10,14 +10,14 @@ Use these patterns once the [test setup](/docs/guides/testing) gives you a fresh
 
 ## Testing hooks
 
-Build a second client on the test database with the hooks you want to check, capture the calls in an array, and assert on it. Hooks receive `action`, `table`, `args`, `meta`, and, in after hooks, `result`:
+Build a second client on the test database (`db`, the `ctx.db` of the setup) with the hooks you want to check, capture the calls in an array, and assert on it. Hooks receive `action`, `table`, `args`, `meta`, and, in after hooks, `result`:
 
 ```ts
 import { better } from 'better-drizzle';
 
 test('create fires before and after hooks', async () => {
 	const events: string[] = [];
-	const client = better(ctx.db, {
+	const client = better(db, {
 		hooks: {
 			beforeCreate(hook) {
 				events.push(`before:${hook.action}:${hook.table}`);
@@ -40,7 +40,7 @@ The same approach checks request metadata. Scoped `meta` from `$withContext(...)
 
 ```ts
 const seen: unknown[] = [];
-const client = better(ctx.db, {
+const client = better(db, {
 	hooks: {
 		beforeCreate(hook) {
 			seen.push(hook.meta);

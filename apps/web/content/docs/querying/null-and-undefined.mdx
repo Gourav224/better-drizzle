@@ -13,7 +13,9 @@ better-drizzle gives the two values different meanings:
 
 The examples on this page add one nullable column to the users table from [Getting started](/docs/getting-started):
 
-```ts title="schema.ts"
+```ts
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
 export const users = sqliteTable('users', {
 	id: integer('id').primaryKey(),
 	email: text('email').notNull().unique(),
@@ -175,16 +177,16 @@ A JSONB column can hold SQL `NULL` (no document), and a document can hold JSON `
 
 ```ts
 // The column itself is SQL NULL (nullable jsonb column)
-await client.accounts.findMany({
-	where: { settings: null },
+await client.users.findMany({
+	where: { metadata: null },
 });
-// settings IS NULL
+// metadata IS NULL
 
 // The document stores an explicit JSON null at the path
-await client.accounts.findMany({
-	where: { settings: { json: { nickname: null } } },
+await client.users.findMany({
+	where: { metadata: { json: { nickname: null } } },
 });
-// jsonb_typeof(settings #> '{nickname}') = 'null'
+// jsonb_typeof(metadata #> '{nickname}') = 'null'
 ```
 
 A path filter set to `null` does not match documents where the key is missing. See [JSONB filters](/docs/querying/jsonb#json-null) for `not: null` and [missing keys](/docs/querying/jsonb#missing-keys-never-match).
@@ -259,6 +261,12 @@ export function searchUsers(input: UserSearch) {
 
 ```ts tab="Drizzle" tab-group="orm"
 import { and, asc, eq, exists, like } from 'drizzle-orm';
+
+type UserSearch = {
+	active?: boolean;
+	search?: string;
+	hasPosts?: boolean;
+};
 
 export function searchUsers(input: UserSearch) {
 	return db

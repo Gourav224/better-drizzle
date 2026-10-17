@@ -72,7 +72,7 @@ This plugin does it in one place:
 - Updates cannot move a row to another tenant.
 - A call without a tenant fails instead of running unscoped. System jobs opt out with `meta.system`.
 
-```ts
+```ts title="tenant-scope.ts"
 import { BetterDrizzleError, BetterDrizzleErrorCode } from 'better-drizzle';
 import { definePlugin } from 'better-drizzle/plugins';
 
@@ -137,19 +137,25 @@ export const tenantScope = ({ column = 'tenantId' } = {}) =>
 The tenant comes from `meta`, so set it once per request with `$withContext(...)`:
 
 ```ts
-const db = better(drizzleDb, { plugins: [tenantScope()] });
+import { better } from 'better-drizzle';
+import { tenantScope } from './tenant-scope';
 
-// once per request, e.g. in middleware
-const tenantDb = db.$withContext({ tenantId: session.tenantId });
-
-await tenantDb.projects.findMany(); // ... WHERE tenant_id = ?
-await tenantDb.projects.updateMany({ data: { archived: true } }); // this tenant's rows only
-await tenantDb.projects.create({
-	data: { name: 'Roadmap', tenantId: body.tenantId }, // replaced by the session tenant
+// `projects` stores the tenant in `organizationId`
+const client = better(db, {
+	plugins: [tenantScope({ column: 'organizationId' })],
 });
 
-await db.projects.findMany(); // throws: projects.findMany() needs meta.tenantId.
-await db.$withContext({ system: true }).projects.count(); // cross-tenant job
+// once per request, e.g. in middleware
+const tenantClient = client.$withContext({ tenantId: session.tenantId });
+
+await tenantClient.projects.findMany(); // ... WHERE organization_id = ?
+await tenantClient.projects.updateMany({ data: { archived: true } }); // this tenant's rows only
+await tenantClient.projects.create({
+	data: { name: 'Roadmap', organizationId: 'org_other' }, // replaced by the session tenant
+});
+
+await client.projects.findMany(); // throws: projects.findMany() needs meta.tenantId.
+await client.$withContext({ system: true }).projects.count(); // cross-tenant job
 ```
 
 Transactions inherit the context, so `tenantDb.transaction((tx) => ...)` stays scoped too.
@@ -166,10 +172,13 @@ Transactions inherit the context, so `tenantDb.transaction((tx) => ...)` stays s
 `operationArgs` adds fields to specific operations, keyed by operation kind. Their types flow from the delegate call into your transforms and hooks. This is how the soft-delete plugin exposes `deleted` and `mode`:
 
 ```ts
-operationArgs: {
-	findMany: { deleted: undefined as 'with' | 'without' | 'only' | undefined },
-	delete: { mode: undefined as 'soft' | 'hard' | undefined },
-},
+definePlugin({
+	id: 'soft-delete',
+	operationArgs: {
+		findMany: { deleted: undefined as 'with' | 'without' | 'only' | undefined },
+		delete: { mode: undefined as 'soft' | 'hard' | undefined },
+	},
+});
 ```
 
 Only the types matter. The values are placeholders and are never read at runtime. Supported keys:

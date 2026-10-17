@@ -47,7 +47,7 @@ An unknown name throws a `BetterDrizzleError`:
 
 The status is 500 because, for typed code, a missing repository is a programming error. When the name comes from a URL or job payload, check it against an allowlist first and answer 404 yourself, instead of letting user input reach `repository()`:
 
-```ts
+```ts title="lib/resources.ts"
 import type { BetterRepositoryKey } from 'better-drizzle';
 
 export const resources = [
@@ -71,6 +71,8 @@ The `satisfies` clause fails to compile if an entry is not a real repository nam
 - `scoped.repository('users')` on a `$withContext()` clone carries the scoped `meta`.
 
 ```ts
+import { resources, type Resource } from './lib/resources';
+
 export async function purge(
 	requestId: string,
 	idsByResource: Record<Resource, number[]>,
@@ -93,6 +95,8 @@ Inside the callback, use `tx.repository(name)`, not `client.repository(name)`: o
 One handler serves every allowlisted resource with offset pagination:
 
 ```ts tab="better-drizzle" tab-group="orm"
+import { isResource } from './lib/resources';
+
 export async function listResource(name: string, page: number, perPage = 25) {
 	if (!isResource(name)) return null; // map to 404
 
@@ -143,6 +147,8 @@ export async function listResource(name: string, page: number, perPage = 25) {
 A background job walks every allowlisted table in primary-key order with `cursor()`, so each batch is one indexed query regardless of table size:
 
 ```ts
+import { resources, type Resource } from './lib/resources';
+
 export async function exportAll(write: (name: Resource, rows: unknown[]) => Promise<void>) {
 	const db = client.$withContext({ job: 'nightly-export' });
 

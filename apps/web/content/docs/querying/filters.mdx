@@ -273,7 +273,7 @@ import { users, posts } from './schema';
 const rows = await db
 	.select()
 	.from(posts)
-	.innerJoin(users, eq(posts.userId, users.id))
+	.innerJoin(users, eq(posts.authorId, users.id))
 	.where(
 		and(
 			client.users.$where({ OR: [{ age: { gte: 18 } }, { active: true }] }),
@@ -289,7 +289,7 @@ import { users, posts } from './schema';
 const rows = await db
 	.select()
 	.from(posts)
-	.innerJoin(users, eq(posts.userId, users.id))
+	.innerJoin(users, eq(posts.authorId, users.id))
 	.where(
 		and(
 			or(gte(users.age, 18), eq(users.active, true)),

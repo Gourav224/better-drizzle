@@ -31,9 +31,9 @@ const stats = await db
 `orderBy` accepts scalar columns of the queried table as one field map or an array for multi-column ordering. A value can be `'asc'` / `'desc'`, or an object with `direction` and optional `nulls`:
 
 ```ts
-orderBy: {
-	lastSeenAt: { direction: 'desc', nulls: 'last' },
-}
+await client.users.findMany({
+	orderBy: { updatedAt: { direction: 'desc', nulls: 'last' } },
+});
 ```
 
 When `nulls` is omitted, the database default applies. Explicit null placement is supported by PostgreSQL and SQLite using their `NULLS FIRST` / `NULLS LAST` syntax; MySQL uses an equivalent `IS NULL` ordering term. Better Drizzle fails during client initialization if it cannot identify the provider's dialect.

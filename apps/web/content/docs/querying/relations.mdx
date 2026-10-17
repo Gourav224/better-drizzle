@@ -10,7 +10,7 @@ Use `include` and relation `select` to load related rows with one call and a typ
 
 Relation reads use a batch loader owned by better-drizzle: one root query plus one query per requested relation node. They do not issue one query per parent row.
 
-The examples below extend the [getting started](/docs/getting-started) `users → posts` schema with `comments`, `profiles`, a `posts.reviewerId` column, and a `userGroups` junction between `users` and `groups`.
+The examples below extend the [getting started](/docs/getting-started) `users → posts` schema with `comments`, `profiles`, a `posts.editorId` column, and a `memberships` junction between `users` and `groups`.
 
 ## Defining relations
 
@@ -36,8 +36,12 @@ export const relations = defineRelations(schema, (r) => ({
 ```
 
 ```ts title="db.ts"
-const db = drizzle({ client, relations });
-export const betterDb = better(db);
+import { better } from 'better-drizzle';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { relations } from './relations';
+
+export const db = drizzle(process.env.DATABASE_URL!, { relations });
+export const client = better(db);
 ```
 
 A foreign key (`.references(...)`) alone is not a relation. Only relations declared in `defineRelations` are available to `include`, `select`, `_count`, relation filters, and relation writes.
@@ -45,14 +49,16 @@ A foreign key (`.references(...)`) alone is not a relation. Only relations decla
 When two relations connect the same pair of tables, give both sides the same `alias`, as Drizzle requires:
 
 ```ts
-posts: {
-	author: r.one.users({ from: r.posts.authorId, to: r.users.id, alias: 'author' }),
-	reviewer: r.one.users({ from: r.posts.reviewerId, to: r.users.id, alias: 'reviewer' }),
-},
-users: {
-	authoredPosts: r.many.posts({ alias: 'author' }),
-	reviewedPosts: r.many.posts({ alias: 'reviewer' }),
-},
+export const relations = defineRelations(schema, (r) => ({
+	posts: {
+		author: r.one.users({ from: r.posts.authorId, to: r.users.id, alias: 'author' }),
+		editor: r.one.users({ from: r.posts.editorId, to: r.users.id, alias: 'editor' }),
+	},
+	users: {
+		authoredPosts: r.many.posts({ alias: 'author' }),
+		editedPosts: r.many.posts({ alias: 'editor' }),
+	},
+}));
 ```
 
 ## Loading relations
@@ -212,14 +218,14 @@ Declare many-to-many relations natively with `.through()` on both ends, naming t
 export const relations = defineRelations(schema, (r) => ({
 	users: {
 		groups: r.many.groups({
-			from: r.users.id.through(r.userGroups.userId),
-			to: r.groups.id.through(r.userGroups.groupId),
+			from: r.users.id.through(r.memberships.userId),
+			to: r.groups.id.through(r.memberships.groupId),
 		}),
 	},
 	groups: {
 		users: r.many.users({
-			from: r.groups.id.through(r.userGroups.groupId),
-			to: r.users.id.through(r.userGroups.userId),
+			from: r.groups.id.through(r.memberships.groupId),
+			to: r.users.id.through(r.memberships.userId),
 		}),
 	},
 }));
@@ -240,10 +246,10 @@ const userRows = await db.select().from(users);
 
 // walk the junction table by hand
 const links = await db
-	.select({ userId: userGroups.userId, group: getColumns(groups) })
-	.from(userGroups)
-	.innerJoin(groups, eq(userGroups.groupId, groups.id))
-	.where(inArray(userGroups.userId, userRows.map((user) => user.id)));
+	.select({ userId: memberships.userId, group: getColumns(groups) })
+	.from(memberships)
+	.innerJoin(groups, eq(memberships.groupId, groups.id))
+	.where(inArray(memberships.userId, userRows.map((user) => user.id)));
 
 const usersWithGroups = userRows.map((user) => ({
 	...user,

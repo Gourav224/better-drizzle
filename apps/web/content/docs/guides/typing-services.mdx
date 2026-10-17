@@ -70,7 +70,9 @@ Prefer `satisfies` for anything that contains an array. `as const` makes arrays 
 A `where` object does not affect the payload type, so a plain annotation is fine there:
 
 ```ts
-const where: WhereInput<Schema, 'users'> = { active: true };
+import type { WhereInput } from 'better-drizzle';
+
+const where: WhereInput<typeof relations, 'users'> = { active: true };
 ```
 
 The exported argument types, all generic over `<Schema, Table>`:
@@ -182,8 +184,8 @@ export function listUsers(db: Db) {
 
 `meta` is `Record<string, unknown>` by default. Pass your own type as the second type argument of `better()`:
 
-```ts
-type AppMeta = {
+```ts title="lib/db.ts"
+export type AppMeta = {
 	requestId?: string;
 	tenantId?: string;
 	userId?: number;
@@ -218,6 +220,8 @@ Per-call `meta` is the full `AppMeta`, not a partial, so keep its keys optional 
 TypeScript does not infer the remaining type arguments once you pass some. With plugins, pass the plugin tuple as well:
 
 ```ts
+import type { AppMeta } from './lib/db';
+
 const plugins = [softDelete()] as const;
 
 export const client = better<typeof relations, AppMeta, typeof plugins>(db, {

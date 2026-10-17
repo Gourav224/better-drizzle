@@ -112,10 +112,20 @@ the SQL primitive itself is slower.
 <Tab value="Drizzle">
 
 ```ts title="schema.ts"
-(table) => [
-	index('posts_tags_gin').using('gin', table.tags),
-	index('posts_tags_count').on(sql`cardinality(${table.tags})`),
-],
+import { sql } from 'drizzle-orm';
+import { index, integer, pgTable, text } from 'drizzle-orm/pg-core';
+
+export const posts = pgTable(
+	'posts',
+	{
+		id: integer('id').primaryKey(),
+		tags: text('tags').array().notNull(),
+	},
+	(table) => [
+		index('posts_tags_gin').using('gin', table.tags),
+		index('posts_tags_count').on(sql`cardinality(${table.tags})`),
+	],
+);
 ```
 
 </Tab>

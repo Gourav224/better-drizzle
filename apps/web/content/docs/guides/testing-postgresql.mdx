@@ -13,10 +13,13 @@ Use these patterns when tests run against a shared database such as PostgreSQL, 
 When rebuilding the database for each test is too slow, as with a shared PostgreSQL database, run each test inside a transaction and roll it back at the end. `tx.rollback()` throws a `BetterDrizzleTransactionRollbackError`, which `transaction(...)` passes on to its caller. The helper swallows that error and rethrows anything else:
 
 ```ts title="tests/rollback.ts"
-import { BetterDrizzleTransactionRollbackError } from 'better-drizzle';
-import type { client } from '../src/db';
+import {
+	type BetterDrizzleClient,
+	BetterDrizzleTransactionRollbackError,
+} from 'better-drizzle';
+import type { relations } from '../src/db/relations';
 
-type Client = typeof client;
+type Client = BetterDrizzleClient<typeof relations>;
 type Tx = Parameters<Parameters<Client['transaction']>[0]>[0];
 
 export const rollbackAfter = async (
@@ -38,7 +41,7 @@ export const rollbackAfter = async (
 ```ts
 test('creates an order', async () => {
 	await rollbackAfter(client, async (tx) => {
-		await createOrder(tx, { userId: 1, total: 40 });
+		await tx.orders.create({ data: { userId: 1, total: 40 } });
 
 		expect(await tx.orders.count({ where: { userId: 1 } })).toBe(1);
 	});

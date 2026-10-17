@@ -141,7 +141,7 @@ This avoids silently dropping the lock on the relation query:
 ```ts
 // This throws LOCK_NOT_SUPPORTED
 const posts = await client.posts.findMany({
-	include: { author: true, tags: true },
+	include: { author: true, comments: true },
 	lock: 'update',
 });
 ```

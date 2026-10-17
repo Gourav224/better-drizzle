@@ -118,13 +118,17 @@ Operators available inside `where`, by column type. A bare value means `equals`;
 
 ```ts
 // select - narrows, scalars + relations
-{ select: { id: true, author: { select: { name: true } } } }
+await client.posts.findMany({
+	select: { id: true, author: { select: { name: true } } },
+});
 
 // include - keeps all scalars, adds relations
-{ include: { author: true } }
+await client.posts.findMany({ include: { author: true } });
 
 // relation counts - available only in include
-{ include: { _count: { select: { comments: true } } } }
+await client.posts.findMany({
+	include: { _count: { select: { comments: true } } },
+});
 ```
 
 A relation value can be `true` or a nested read-args object (with its own `where`, `select`, `orderBy`, `take`). See [selecting fields](/docs/querying/selecting-fields).

@@ -137,6 +137,8 @@ try {
 Each predicate accepts an optional constraint (or column) name to match a specific one:
 
 ```ts
+import { isNotNullViolation, isUniqueViolation } from 'better-drizzle';
+
 if (isUniqueViolation(error, 'users_email_unique')) {
 	// only the email uniqueness constraint
 }

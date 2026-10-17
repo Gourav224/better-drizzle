@@ -104,6 +104,8 @@ export const client = better(db, {
 The four transaction hooks give you start, commit, rollback, and failure. For one transaction, all of them receive the same `ctx.client` (the transaction client), which keys the timer:
 
 ```ts
+type Meta = { requestId?: string };
+
 const txStarted = new WeakMap<object, number>();
 
 const txElapsed = (key: object) => {

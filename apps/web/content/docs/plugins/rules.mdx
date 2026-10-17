@@ -254,6 +254,8 @@ The scope type also has an `operations` field, but only `noEmptyWhere`, `require
 Each violation reaches your handlers as a `RulesViolation`:
 
 ```ts
+import type { RulesOperation } from 'better-drizzle/rules';
+
 type RulesViolation = {
 	rule: string; // e.g. 'noDeleteManyWithoutWhere'
 	level: 'warn' | 'error';
@@ -290,7 +292,7 @@ The thrown error is a `BetterDrizzleError` with code `OperationError`. Its `mess
 import { BetterDrizzleError } from 'better-drizzle';
 
 try {
-	await db.users.deleteMany();
+	await client.users.deleteMany({});
 } catch (error) {
 	if (error instanceof BetterDrizzleError && error.details?.rule === 'noDeleteManyWithoutWhere') {
 		// handle the blocked write

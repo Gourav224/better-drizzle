@@ -15,7 +15,7 @@ Use these APIs when a [plugin](/docs/plugins/writing-plugins) must filter rows a
 A transform only changes the root `where`. A plugin that must filter every statement for a model - relation loads, relation filters, `_count`, relation sorts, writes, upserts, and relation-write lookups - declares a `scope`. The [tenant](/docs/plugins/tenant) and [soft-delete](/docs/plugins/soft-delete) plugins are built on it.
 
 ```ts
-import { definePlugin } from 'better-drizzle';
+import { better, definePlugin } from 'better-drizzle';
 
 export const regions = () =>
 	definePlugin({
@@ -35,6 +35,7 @@ export const regions = () =>
 		}),
 	});
 
+const client = better(db, { plugins: [regions()] });
 const eu = client.$inRegion('eu');
 await eu.posts.findMany({ include: { comments: true } }); // both tables filtered
 ```
@@ -102,7 +103,7 @@ export const slugs = () =>
 
 `definePlugin(...)` infers everything from the object you pass. Set the generics explicitly only when inference is not enough:
 
-```ts
+```ts noCheck
 definePlugin<Options, ClientExtension, ModelExtension, State, OperationArgs, ModelExtensionResolver, ClientExtensionResolver>({ ... });
 ```
 
@@ -125,8 +126,10 @@ import {
 	type PluginState,
 } from 'better-drizzle';
 
+type TableName<Name> = { readonly tableName: Name };
+
 interface TableNameExtension extends ModelExtensionTypeResolver {
-	readonly extension: { readonly tableName: this['name'] };
+	readonly extension: TableName<this['name']>;
 }
 
 export const tableName = definePlugin<

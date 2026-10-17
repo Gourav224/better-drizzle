@@ -8,14 +8,16 @@ seoDescription: 'Connect, disconnect, and set related rows from a single Drizzle
 
 Use relation commands when a single-row `create`, `update`, or `upsert` should also attach, detach, or replace related rows. You describe the link and better-drizzle resolves the foreign keys and junction rows inside one transaction.
 
+The examples use `author` (a to-one relation on `posts`) and `labels` (a many-to-many relation from `posts` to `tags` through a `postTags` junction).
+
 ```ts tab="better-drizzle" tab-group="orm"
 const post = await client.posts.create({
 	data: {
 		title: 'Relations without the glue',
 		author: { connect: { email: 'alice@example.com' } },
-		tags: { connect: [{ slug: 'drizzle' }, { slug: 'typescript' }] },
+		labels: { connect: [{ slug: 'drizzle' }, { slug: 'typescript' }] },
 	},
-	include: { author: true, tags: true },
+	include: { author: true, labels: true },
 });
 ```
 
@@ -44,7 +46,7 @@ const post = await db.transaction(async (tx) => {
 		.values(tagRows.map((tag) => ({ postId: created.id, tagId: tag.id })));
 
 	// assemble the relation payload by hand
-	return { ...created, author, tags: tagRows };
+	return { ...created, author, labels: tagRows };
 });
 ```
 
@@ -103,7 +105,7 @@ await db.transaction(async (tx) => {
 });
 ```
 
-For a many-to-many relation declared with `.through()` in `defineRelations`, `connect` inserts the junction rows for you, as in the `tags` example at the top: you never name the junction table.
+For a many-to-many relation declared with `.through()` in `defineRelations`, `connect` inserts the junction rows for you, as in the `labels` example at the top: you never name the junction table.
 
 ## Detach rows with `disconnect`
 
@@ -157,14 +159,14 @@ the tags now" semantics:
 await client.posts.update({
 	where: { id: 10 },
 	data: {
-		tags: { set: [{ slug: 'drizzle' }, { slug: 'orm' }] },
+		labels: { set: [{ slug: 'drizzle' }, { slug: 'orm' }] },
 	},
 });
 
 // an empty array clears the relation
 await client.posts.update({
 	where: { id: 10 },
-	data: { tags: { set: [] } },
+	data: { labels: { set: [] } },
 });
 
 // to-one: repoint it, or null it out
@@ -230,7 +232,7 @@ await client.posts.upsert({
 	},
 	update: {
 		title: 'Hello world (revised)',
-		tags: { set: [{ slug: 'drizzle' }] },
+		labels: { set: [{ slug: 'drizzle' }] },
 	},
 });
 ```
@@ -325,7 +327,7 @@ await client.transaction(async (tx) => {
 	// same transaction - no nested implicit one is opened
 	await tx.posts.update({
 		where: { id: post.id },
-		data: { tags: { connect: [{ slug: 'draft' }] } },
+		data: { labels: { connect: [{ slug: 'draft' }] } },
 	});
 
 	return post;

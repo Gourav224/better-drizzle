@@ -109,8 +109,10 @@ await migrate(db, { migrationsFolder: 'drizzle' });
 <Tab value="MySQL">
 
 ```ts
+import { drizzle } from 'drizzle-orm/mysql2';
 import { migrate } from 'drizzle-orm/mysql2/migrator';
 
+const db = drizzle(process.env.DATABASE_URL ?? '');
 await migrate(db, { migrationsFolder: 'drizzle' });
 ```
 
@@ -119,8 +121,11 @@ await migrate(db, { migrationsFolder: 'drizzle' });
 <Tab value="SQLite">
 
 ```ts
+import { Database } from 'bun:sqlite';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 
+const db = drizzle({ client: new Database(':memory:') });
 migrate(db, { migrationsFolder: 'drizzle' });
 ```
 
@@ -132,7 +137,17 @@ On Node, import from `drizzle-orm/better-sqlite3/migrator`.
 
 ## A fresh client per test
 
-Create the database in `beforeEach` and close it in `afterEach`. Tests then share nothing, which means no ordering bugs and no cleanup code:
+Create the database in `beforeEach` and close it in `afterEach`. Tests then share nothing, which means no ordering bugs and no cleanup code. The code under test takes the client as a parameter:
+
+```ts title="src/users.ts"
+import type { BetterDrizzleClient } from 'better-drizzle';
+import type { relations } from './db/relations';
+
+export const deactivateUser = (
+	client: BetterDrizzleClient<typeof relations>,
+	id: number,
+) => client.users.update({ where: { id }, data: { active: false } });
+```
 
 ```ts title="tests/users.test.ts"
 import { afterEach, beforeEach, expect, test } from 'bun:test';
