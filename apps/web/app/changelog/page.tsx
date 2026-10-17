@@ -2,6 +2,7 @@ import { createMarkdownRenderer } from 'fumadocs-core/content/md';
 import { rehypeCode, remarkGfm } from 'fumadocs-core/mdx-plugins';
 import { Callout } from 'fumadocs-ui/components/callout';
 import type { Metadata } from 'next';
+import type { ComponentProps } from 'react';
 
 import {
 	getReleases,
@@ -123,7 +124,9 @@ function splitBody(body: string) {
 }
 
 function ReleaseBody({ body }: { body: string }) {
-	const components = getMDXComponents();
+	const components = getMDXComponents() as ComponentProps<
+		typeof MarkdownServer
+	>['components'];
 
 	return splitBody(body).map((segment, index) => {
 		if (segment.kind === 'alert')
