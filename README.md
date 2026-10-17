@@ -63,7 +63,7 @@ npm install better-drizzle drizzle-orm@1.0.0-rc.4
 ```
 
 > [!IMPORTANT]
-> better-drizzle supports **only Drizzle ORM 1.x** (`drizzle-orm` `>=1.0.0-rc.4 <1.0.0-rc.5`; later release candidates are not supported yet) and its `defineRelations(...)` API. **`drizzle-orm` 0.x is not supported** - projects on 0.x must stay on better-drizzle `0.2.x`. Install `drizzle-orm` with the explicit version: until Drizzle 1.0 is tagged `latest`, a plain install resolves to 0.x. See [upgrading](https://better-drizzle.com/docs/guides/upgrading#moving-to-drizzle-orm-1x).
+> better-drizzle supports **only Drizzle ORM 1.x** (`drizzle-orm` `>=1.0.0-rc.4 <1.0.0-rc.5`; later release candidates are not supported yet) and its `defineRelations(...)` API. **`drizzle-orm` 0.x is not supported** - projects on 0.x must stay on better-drizzle `0.2.x`. Install `drizzle-orm` with the explicit version: until Drizzle 1.0 is tagged `latest`, a plain install resolves to 0.x. See [upgrading](https://better-drizzle.com/docs/guides/upgrading-0-3).
 
 ## Setup
 
@@ -332,7 +332,13 @@ Full tables, methodology, and the cases where the wrapper costs you: [benchmarks
 
 ## AI agents
 
-better-drizzle ships a first-party [skill pack](https://github.com/almeidazs/better-drizzle/tree/main/skills/better-drizzle) - `SKILL.md` plus task references - for coding agents that need accurate API guidance and review guardrails. Zero scripts, zero network. See the [AI docs](https://better-drizzle.com/docs/ai).
+Give your agent the current API instead of older training data:
+
+- **Skill**: `npx skills add almeidazs/better-drizzle` installs the [skill](https://github.com/almeidazs/better-drizzle/tree/main/skills/better-drizzle) for Claude Code, Codex, Cursor, GitHub Copilot, OpenCode, and other agents that read `SKILL.md`.
+- **Markdown docs**: [`llms.txt`](https://better-drizzle.com/llms.txt), [`llms-full.txt`](https://better-drizzle.com/llms-full.txt), and a `.md` version of every page (`https://better-drizzle.com/docs/querying/relations.md`).
+- **Page actions**: every docs page can be copied as Markdown or opened in ChatGPT or Claude.
+
+The skill ships only Markdown: no scripts and no install commands. See the [AI docs](https://better-drizzle.com/docs/ai).
 
 ## Docs
 

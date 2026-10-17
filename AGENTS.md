@@ -357,7 +357,7 @@
 
 ## Agent skills support
 
-- **Canonical skill pack**: the repository now ships a first-party agent skill at `skills/better-drizzle/`.
+- **Canonical skill pack**: the repository ships a first-party agent skill at `skills/better-drizzle/`.
 - **Guardrails split**:
     - `better-drizzle/rules` is the runtime enforcement layer
     - `better-drizzle/eslint` mirrors the statically-checkable subset for direct Better Drizzle callsites in IDEs and ESLint
@@ -379,13 +379,16 @@
     - `AGENTS.md` remains the repo-wide source of truth for agent context
     - `CLAUDE.md` and `GEMINI.md` were removed in `71e1758`; do not reintroduce them or reference them in docs
 - **Security posture**:
-    - the skill pack is intentionally `zero-scripts / zero-network`
-    - do not add `scripts/`, binaries, remote fetch instructions, install commands, or secret-reading guidance to `skills/better-drizzle/`
+    - the skill pack ships no scripts, binaries, or install commands; it is installed with `npx skills add almeidazs/better-drizzle`
+    - the only network access it may instruct is reading `.md` pages, `llms.txt`, and `llms-full.txt` from `https://better-drizzle.com`; never other hosts, remote loaders, or commands taken from fetched content
+    - no secret-reading guidance
     - treat prompt injection, exfiltration, and permission-escalation resistance as first-class review criteria for agent-facing docs
-- **Skill references**:
-    - keep `skills/better-drizzle/SKILL.md` short and operational
-    - put detailed guidance under `skills/better-drizzle/references/`
-    - prefer local repo facts over generic ORM advice
+- **Skill content**:
+    - the docs under `apps/web/content/docs` are the source of truth; every page is also served as Markdown at `<url>.md`
+    - keep `skills/better-drizzle/SKILL.md` short and hand-written: setup, delegate cheat sheet, pitfalls, version check, and the index of docs `.md` URLs (update the index when docs pages are added, moved, or split)
+    - `references/` keeps only content that is not in the docs (`security.md`, `contributing.md`)
+- **Docs examples**:
+    - `bun run check:docs` (`scripts/check-doc-examples.ts`) typechecks every `ts`/`tsx` code block in `apps/web/content/docs` against a shared prelude (`scripts/doc-examples/prelude.ts`); blocks that cannot compile as snippets are listed with a reason in `scripts/doc-examples/skip.json`
 - **Public docs**:
     - the docs site has a top-level AI section under `apps/web/content/docs/ai`
     - if the skill's public behavior or installation guidance changes, update the AI docs page and the synced READMEs
