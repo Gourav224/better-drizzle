@@ -273,11 +273,12 @@ type RelationOrderBy<
 	RelationName extends RelationKeysFor<Schema, Name>,
 > =
 	RelationFor<Schema, Name, RelationName> extends Many<string>
-		? { count: import('./utils').SortOrder }
-			| {
-					/** @deprecated Use `count`. Removed in 0.5.0. */
-					_count: import('./utils').SortOrder;
-				}
+		?
+				| { count: import('./utils').SortOrder }
+				| {
+						/** @deprecated Use `count`. Removed in 0.5.0. */
+						_count: import('./utils').SortOrder;
+				  }
 		: RelationFor<Schema, Name, RelationName> extends One<string, boolean>
 			? OrderByField<Schema, RelatedNameFor<Schema, Name, RelationName>>
 			: never;

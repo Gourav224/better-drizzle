@@ -549,10 +549,7 @@ export const runLeakSuite = (harness: LeakHarness) => {
 			expect(
 				ordered(
 					await a.projects.findMany({
-						orderBy: [
-							{ labels: { count: 'desc' } },
-							{ id: 'asc' },
-						],
+						orderBy: [{ labels: { count: 'desc' } }, { id: 'asc' }],
 					}),
 				),
 			).toEqual([1, 2]);

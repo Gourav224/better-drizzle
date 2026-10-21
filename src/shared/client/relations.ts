@@ -274,9 +274,7 @@ export const prepareRelationalRead = <Schema extends AnySchema, Meta>(
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
 	const counts = getCountSelection(runtime, args);
-	const countKey = counts
-		? getCountKey(runtime, args?.include)
-		: undefined;
+	const countKey = counts ? getCountKey(runtime, args?.include) : undefined;
 	const source = validateProjection(context, runtime, args);
 	if (!source) return;
 
@@ -284,7 +282,10 @@ export const prepareRelationalRead = <Schema extends AnySchema, Meta>(
 	if (!select)
 		return {
 			args: counts
-				? { ...args, include: { [countKey as string]: { select: counts } } }
+				? {
+						...args,
+						include: { [countKey as string]: { select: counts } },
+					}
 				: { ...args, include: undefined },
 			source,
 		};

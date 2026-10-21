@@ -547,9 +547,15 @@ export const createOrderBySchemas = (
 		shape[relationName] = (
 			relation.isMany
 				? z.union([
-						applyUnknownKeys(z.object({ count: direction }), behavior),
+						applyUnknownKeys(
+							z.object({ count: direction }),
+							behavior,
+						),
 						// Deprecated alias, removed in 0.5.0.
-						applyUnknownKeys(z.object({ _count: direction }), behavior),
+						applyUnknownKeys(
+							z.object({ _count: direction }),
+							behavior,
+						),
 					])
 				: z.lazy(() => {
 						if (target) return target;

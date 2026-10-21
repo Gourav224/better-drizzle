@@ -1508,7 +1508,7 @@ const getDirectSelection = (
 
 	if (counts) {
 		selection[getCountKey(runtime, include) as string] = counts;
-		
+
 		hasSelection = true;
 	}
 

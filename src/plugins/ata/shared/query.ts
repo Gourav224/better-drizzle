@@ -121,14 +121,18 @@ export const createRelationOrderByDefinitions = (
 							anyOf: [
 								{
 									additionalProperties: false,
-									properties: { count: { enum: [...SORT_ORDER] } },
+									properties: {
+										count: { enum: [...SORT_ORDER] },
+									},
 									required: ['count'],
 									type: 'object',
 								},
 								{
 									additionalProperties: false,
 									deprecated: true,
-									properties: { _count: { enum: [...SORT_ORDER] } },
+									properties: {
+										_count: { enum: [...SORT_ORDER] },
+									},
 									required: ['_count'],
 									type: 'object',
 								},

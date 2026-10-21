@@ -1419,7 +1419,7 @@ const compileRelationOrder = <Schema extends AnySchema, Meta>(
 		const direction = isPlainObject(value)
 			? (value.count ?? value._count)
 			: undefined;
-		
+
 		if (
 			!isPlainObject(value) ||
 			(direction !== 'asc' && direction !== 'desc') ||
@@ -1430,9 +1430,9 @@ const compileRelationOrder = <Schema extends AnySchema, Meta>(
 				key,
 				`Relation "${key}" on "${runtime.dbName}" is a to-many relation; sort it by { count: 'asc' | 'desc' }.`,
 			);
-		
+
 		if ('_count' in value) warnLegacyCount();
-		
+
 		const count = buildRelationCount(
 			context,
 			relation,
@@ -1450,8 +1450,11 @@ const compileRelationOrder = <Schema extends AnySchema, Meta>(
 	}
 
 	const target = getTableRuntime(context, relation.tableName);
-	if (!isPlainObject(value) || (('_count' in value && !target.columns._count) ||
-			('count' in value && !target.columns.count)))
+	if (
+		!isPlainObject(value) ||
+		('_count' in value && !target.columns._count) ||
+		('count' in value && !target.columns.count)
+	)
 		throw invalidRelationOrder(
 			runtime,
 			key,
