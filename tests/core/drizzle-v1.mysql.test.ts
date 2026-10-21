@@ -138,6 +138,80 @@ describe.skipIf(!MYSQL_URL)('Drizzle 1.x migration (MySQL)', () => {
 		expect(await client.members.count()).toBe(3);
 	});
 
+	test('max / min compile to GREATEST / LEAST and treat NULL as the operand', async () => {
+		await connection.query(`
+			drop table if exists better_drizzle_v1_scores;
+			create table better_drizzle_v1_scores (id int primary key, best int not null, low int);
+			insert into better_drizzle_v1_scores values (1, 50, null), (2, 80, 10);
+		`);
+		const scores = mysqlTable('better_drizzle_v1_scores', {
+			best: int('best').notNull(),
+			id: int('id').primaryKey(),
+			low: int('low'),
+		});
+		const scoreClient = better(
+			drizzle({
+				client: connection,
+				mode: 'default',
+				relations: defineRelations({ scores }),
+			}),
+		);
+
+		try {
+			await scoreClient.scores.updateMany({
+				data: { best: { max: 60 }, low: { min: 20 } },
+				where: { id: { in: [1, 2] } },
+			});
+			expect(
+				await scoreClient.scores.findMany({ orderBy: { id: 'asc' } }),
+			).toEqual([
+				{ best: 60, id: 1, low: 20 },
+				{ best: 80, id: 2, low: 10 },
+			]);
+			expect(
+				await scoreClient.scores.update({
+					data: { best: { min: 70 } },
+					where: { id: 2 },
+				}),
+			).toMatchObject({ best: 70 });
+			expect(
+				await scoreClient.scores.upsert({
+					create: { best: 0, id: 1 },
+					update: { best: { max: 99 } },
+					where: { id: 1 },
+				}),
+			).toMatchObject({ best: 99 });
+			await scoreClient.scores.updateEach({
+				by: scores.id,
+				data: [
+					{ id: 1, score: 10 },
+					{ id: 2, score: 95 },
+				],
+				update: {
+					best: (row) => ({ max: row.score as number }),
+					low: (row) => ({ min: row.score as number }),
+				},
+			});
+			await scoreClient.scores.upsertMany({
+				data: [
+					{ best: 0, id: 2 },
+					{ best: 7, id: 3 },
+				],
+				target: 'id',
+				update: { best: { min: 50 } },
+			});
+			expect(
+				await scoreClient.scores.findMany({ orderBy: { id: 'asc' } }),
+			).toEqual([
+				{ best: 99, id: 1, low: 10 },
+				{ best: 50, id: 2, low: 10 },
+				{ best: 7, id: 3, low: null },
+			]);
+		} finally {
+			await connection.query('drop table better_drizzle_v1_scores');
+		}
+	});
+
 	test('upsert on a primary-key-only table uses the native path', async () => {
 		const updated = await client.counters.upsert({
 			create: { id: 1, value: 0 },
