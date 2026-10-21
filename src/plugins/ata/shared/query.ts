@@ -118,10 +118,21 @@ export const createRelationOrderByDefinitions = (
 			properties[key] =
 				relation.relationType === 'many'
 					? {
-							additionalProperties: false,
-							properties: { _count: { enum: [...SORT_ORDER] } },
-							required: ['_count'],
-							type: 'object',
+							anyOf: [
+								{
+									additionalProperties: false,
+									properties: { count: { enum: [...SORT_ORDER] } },
+									required: ['count'],
+									type: 'object',
+								},
+								{
+									additionalProperties: false,
+									deprecated: true,
+									properties: { _count: { enum: [...SORT_ORDER] } },
+									required: ['_count'],
+									type: 'object',
+								},
+							],
 						}
 					: { $ref: `#/$defs/${visit(relation.targetTableName)}` };
 		}
@@ -186,19 +197,21 @@ export const createSelectSchema = (
 };
 
 /**
- * An `include` projection: relations only, plus `_count`. Scalar columns are
+ * An `include` projection: relations only, plus `count`. Scalar columns are
  * always returned when `include` is used, so naming one here is a mistake.
  */
 export const createIncludeSchema = (
 	relations: readonly string[] = [],
 ): JsonSchema => {
+	const count: JsonSchema = {
+		additionalProperties: false,
+		properties: { select: countSelect(relations) },
+		required: ['select'],
+		type: 'object',
+	};
 	const properties: Record<string, JsonSchema> = {
-		_count: {
-			additionalProperties: false,
-			properties: { select: countSelect(relations) },
-			required: ['select'],
-			type: 'object',
-		},
+		count,
+		_count: { ...count, deprecated: true },
 	};
 	for (const name of relations) properties[name] = RELATION_ARG;
 

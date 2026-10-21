@@ -21,7 +21,7 @@ Keep raw Drizzle for queries that are really SQL: reports with `GROUP BY`, windo
 | Point lookups | `select ... limit 1`, then `rows[0] ?? null` | `findUnique`, `findFirst`, plus `.throw()` when the row is required |
 | Nested relations | `db.query` or joins and manual stitching | `include` / `select` at any depth, with per-level `where`, `orderBy`, `take`, `skip` |
 | Relation filters | `exists` subqueries by hand | `some`, `every`, `none`, `is`, `isNot` |
-| Relation counts | correlated subqueries | `include: { _count: { select: { posts: true } } }` |
+| Relation counts | correlated subqueries | `include: { count: { select: { posts: true } } }` |
 | Pagination | two queries and the page math | `paginate()` and `cursor()` return `{ data, pagination }` |
 | Relation writes | inserts and deletes on the junction table | `connect`, `disconnect`, `set`, in an implicit transaction |
 | Bulk writes | builders per dialect | `createMany`, `upsertMany`, `updateEach` (one `UPDATE ... CASE`) |
@@ -123,7 +123,7 @@ Memory is mixed: single reads use less heap, while mixed-read batches and transa
 
 ## When raw Drizzle is the better tool
 
-- **Reports and analytics**: `groupBy`, `sum`, `avg`, window functions, CTEs. Delegates only have `count`, `exists`, and `_count`.
+- **Reports and analytics**: `groupBy`, `sum`, `avg`, window functions, CTEs. Delegates only have `count`, `exists`, and relation `count`.
 - **Set-based statements**: `INSERT ... SELECT`, `UPDATE ... FROM`.
 - **SQL the API does not model**: expressions in `ORDER BY`, full-text ranking, extension functions.
 - **A profiled hot path** where a few microseconds matter.

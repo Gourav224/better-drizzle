@@ -31,10 +31,10 @@ const names = await client.users.findMany({
 const authors = await client.users.findMany({
 	include: {
 		posts: { select: { id: true, title: true } },
-		_count: { select: { posts: true } },
+		count: { select: { posts: true } },
 	},
 });
-// { id; email; name; active; posts: { id: number; title: string }[]; _count: { posts: number } }[]
+// { id; email; name; active; posts: { id: number; title: string }[]; count: { posts: number } }[]
 
 // A to-one relation is nullable unless Drizzle declares it with optional: false
 const drafts = await client.posts.findMany({
@@ -54,7 +54,7 @@ The rules:
 
 - no `select` or `include`: the table's select model (the same type as Drizzle's `$inferSelect`)
 - `select`: only keys whose value is the literal `true`; `false` and `boolean` keys are left out
-- `include`: every scalar column, plus the listed relations, plus `_count` when requested
+- `include`: every scalar column, plus the listed relations, plus `count` when requested
 - to-many relations are arrays; to-one relations are `T | null`, or `T` when declared with `optional: false` and not filtered by a nested `where`
 - nested `select` and `include` are resolved the same way at each level
 

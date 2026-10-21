@@ -162,7 +162,7 @@ describe('createQueryArgsSchema', () => {
 		expect(ok({ cursor: { id: 1 } })).toBe(true);
 		expect(ok({ cursor: { nope: 1 } })).toBe(false);
 		expect(ok({ include: { posts: true } })).toBe(true);
-		expect(ok({ include: { _count: { select: { posts: true } } } })).toBe(
+		expect(ok({ include: { count: { select: { posts: true } } } })).toBe(
 			true,
 		);
 	});

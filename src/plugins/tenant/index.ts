@@ -30,7 +30,7 @@ import { version } from './version';
  * Isolates tenants through core model scopes.
  *
  * Every model with any of the `columns` is scoped by the columns it has:
- * reads, relation loads, relation filters, `_count`, relation sorts, writes,
+ * reads, relation loads, relation filters, `count`, relation sorts, writes,
  * upserts, and relation writes only see rows of the active tenant. Creates
  * stamp the tenant columns (optional in create types and zod/ata schemas),
  * and updates cannot change them.

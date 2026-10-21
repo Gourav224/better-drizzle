@@ -203,7 +203,7 @@ export const softDelete = (options: SoftDeleteOptions = {}) => {
 			);
 		},
 		options,
-		// Nested reads (relations, filters, `_count`, sorts) always use the
+		// Nested reads (relations, filters, `count`, sorts) always use the
 		// static `where`; `root()` maps the root `deleted` argument. Upserts
 		// stay unfiltered: hiding a deleted row would turn the update branch
 		// into a duplicate insert.

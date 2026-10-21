@@ -451,14 +451,14 @@ describe.skipIf(!MYSQL_URL)('orderBy relation fields (mysql)', () => {
 
 	test('sorts by to-many counts, including nested paginated includes', async () => {
 		const users = await ctx.better.users.findMany({
-			orderBy: [{ comments: { _count: 'desc' } }, { id: 'desc' }],
+			orderBy: [{ comments: { count: 'desc' } }, { id: 'desc' }],
 		});
 		expect(users.map((row) => row.id)).toEqual([3, 1, 2, 5, 4]);
 
 		const withPosts = await ctx.better.users.findMany({
 			include: {
 				posts: {
-					orderBy: [{ comments: { _count: 'desc' } }, { id: 'asc' }],
+					orderBy: [{ comments: { count: 'desc' } }, { id: 'asc' }],
 					take: 1,
 				},
 			},

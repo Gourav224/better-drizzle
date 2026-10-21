@@ -613,10 +613,10 @@ export const defineMatrix = (name: string, harness: MatrixHarness) => {
 				).toEqual(expected);
 			});
 
-			test('_count on many, many-to-many and self many-to-many', async () => {
+			test('count on many, many-to-many and self many-to-many', async () => {
 				const rows = await db.users.findMany({
 					include: {
-						_count: {
+						count: {
 							select: {
 								comments: { where: { likes: { gte: 10 } } },
 								followers: true,
@@ -629,7 +629,7 @@ export const defineMatrix = (name: string, harness: MatrixHarness) => {
 					orderBy: { id: 'asc' },
 					where: { id: { in: [1, 11, 100, 120] } },
 				});
-				expect(rows.map((row) => row._count)).toEqual(
+				expect(rows.map((row) => row.count)).toEqual(
 					[1, 11, 100, 120].map((id) => ({
 						comments: SEED.comments.filter(
 							(comment) =>
@@ -644,7 +644,7 @@ export const defineMatrix = (name: string, harness: MatrixHarness) => {
 
 				const posts = await db.posts.findMany({
 					include: {
-						_count: {
+						count: {
 							select: {
 								comments: true,
 								tags: { where: { id: { lte: 6 } } },
@@ -654,7 +654,7 @@ export const defineMatrix = (name: string, harness: MatrixHarness) => {
 					orderBy: { id: 'asc' },
 					take: 12,
 				});
-				expect(posts.map((post) => post._count)).toEqual(
+				expect(posts.map((post) => post.count)).toEqual(
 					range(1, 12).map((id) => ({
 						comments: commentsOf(id).length,
 						tags: tagIdsOf(id).filter((tagId) => tagId <= 6).length,
@@ -858,7 +858,7 @@ export const defineMatrix = (name: string, harness: MatrixHarness) => {
 				);
 			});
 
-			test('self relation filters (membership path) and self _count', async () => {
+			test('self relation filters (membership path) and self count', async () => {
 				const children = await db.categories.findMany({
 					orderBy: { id: 'asc' },
 					where: { parent: { is: { name: 'Cat 1' } } },
@@ -866,10 +866,10 @@ export const defineMatrix = (name: string, harness: MatrixHarness) => {
 				expect(ids(children)).toEqual([4, 7]);
 
 				const counted = await db.categories.findMany({
-					include: { _count: { select: { children: true } } },
+					include: { count: { select: { children: true } } },
 					orderBy: { id: 'asc' },
 				});
-				expect(counted.map((row) => row._count.children)).toEqual(
+				expect(counted.map((row) => row.count.children)).toEqual(
 					SEED.categories.map(
 						(category) =>
 							SEED.categories.filter(

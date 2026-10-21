@@ -27,7 +27,7 @@ const page = await client.users.paginate({
 			take: 3,
 			select: { id: true, title: true },
 		},
-		_count: { select: { posts: true } },
+		count: { select: { posts: true } },
 	},
 });
 // { data: [...], pagination: { page, perPage, total, pageCount, hasNext, hasPrevious } }
@@ -82,7 +82,7 @@ const page = {
 		posts: postRows
 			.filter((post) => post.authorId === user.id)
 			.map(({ id, title }) => ({ id, title })),
-		_count: {
+		count: {
 			posts: postCounts.find((row) => row.authorId === user.id)?.value ?? 0,
 		},
 	})),
@@ -106,7 +106,7 @@ Both versions are fully typed. In the raw version, though, the filters are writt
 
 - `include` and `select` load related rows at any depth. Each level accepts its own `where`, `orderBy`, `take`, `skip`, and `cursor`, and per-parent limits run in SQL.
 - Many-to-many relations declared with Drizzle's `.through()` load and filter like any other relation, without naming the junction table in queries.
-- `_count` adds relation totals as a subquery in the same statement, with no extra round-trip.
+- `count` adds relation totals as a subquery in the same statement, with no extra round-trip.
 - Relation filters (`some`, `every`, `none`, `is`, `isNot`) replace hand-built `exists` subqueries.
 - The batched loader issues one query per relation node. On the relation graph benchmark it is [~9× faster](/docs/performance/benchmarks) than the equivalent hand-written code.
 

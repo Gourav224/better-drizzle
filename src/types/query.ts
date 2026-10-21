@@ -262,6 +262,8 @@ export type IncludeInput<
 > = {
 	[K in RelationKeysFor<Schema, Name>]?: SelectRelationArg<Schema, Name, K>;
 } & {
+	count?: { select: CountSelectInput<Schema, Name> };
+	/** @deprecated Use `count`. Removed in 0.5.0. */
 	_count?: { select: CountSelectInput<Schema, Name> };
 };
 
@@ -271,7 +273,11 @@ type RelationOrderBy<
 	RelationName extends RelationKeysFor<Schema, Name>,
 > =
 	RelationFor<Schema, Name, RelationName> extends Many<string>
-		? { _count: import('./utils').SortOrder }
+		? { count: import('./utils').SortOrder }
+			| {
+					/** @deprecated Use `count`. Removed in 0.5.0. */
+					_count: import('./utils').SortOrder;
+				}
 		: RelationFor<Schema, Name, RelationName> extends One<string, boolean>
 			? OrderByField<Schema, RelatedNameFor<Schema, Name, RelationName>>
 			: never;
@@ -674,9 +680,17 @@ type IncludedCountPayload<
 	Schema extends AnySchema,
 	Name extends TableKey<Schema>,
 	Include extends IncludeInput<Schema, Name>,
-> = Include extends { _count: { select: infer Count } }
+> = CountPayloadFor<Schema, Name, Include, 'count'> &
+	CountPayloadFor<Schema, Name, Include, '_count'>;
+
+type CountPayloadFor<
+	Schema extends AnySchema,
+	Name extends TableKey<Schema>,
+	Include extends IncludeInput<Schema, Name>,
+	Key extends 'count' | '_count',
+> = Include extends { [P in Key]: { select: infer Count } }
 	? {
-			_count: {
+			[P in Key]: {
 				[
 					K in RelationKeysFor<Schema, Name> as K extends keyof Count
 						? Count[K] extends CountRelationArg<Schema, Name, K>

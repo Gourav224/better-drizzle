@@ -1,6 +1,6 @@
 ---
 title: Relations
-description: Load related rows with include and select, count them with _count, and use many-to-many relations.
+description: Load related rows with include and select, count them with count, and use many-to-many relations.
 icon: Workflow
 seoTitle: 'Drizzle ORM Relations - include & select'
 seoDescription: 'Load Drizzle ORM relations with nested include and select, and filter by related rows with some, every, none, is, and isNot. Batched, no N+1 queries.'
@@ -44,7 +44,7 @@ export const db = drizzle(process.env.DATABASE_URL!, { relations });
 export const client = better(db);
 ```
 
-A foreign key (`.references(...)`) alone is not a relation. Only relations declared in `defineRelations` are available to `include`, `select`, `_count`, relation filters, and relation writes.
+A foreign key (`.references(...)`) alone is not a relation. Only relations declared in `defineRelations` are available to `include`, `select`, `count`, relation filters, and relation writes.
 
 When two relations connect the same pair of tables, give both sides the same `alias`, as Drizzle requires:
 
@@ -177,12 +177,12 @@ const usersWithPosts = userRows.map((user) => ({
 
 ## Relation counts
 
-Use `_count` inside `include` to return counts without loading the related rows. A selected relation can be `true` or a `{ where }` filter. The result is available under `_count`; to-one relations return `0` or `1`.
+Use `count` inside `include` to return counts without loading the related rows. A selected relation can be `true` or a `{ where }` filter. The result is available under `count`; to-one relations return `0` or `1`. `count` is a reserved key: a relation named `count` cannot be loaded through `include`. See [limitations](/docs/guides/limitations#reserved-names). The old `_count` spelling is a deprecated alias, see [upgrading to 0.4](/docs/guides/upgrading-0-4).
 
 ```ts tab="better-drizzle" tab-group="orm"
 const users = await client.users.findMany({
 	include: {
-		_count: {
+		count: {
 			select: {
 				posts: { where: { published: true } },
 				profile: true,
@@ -190,7 +190,7 @@ const users = await client.users.findMany({
 		},
 	},
 });
-// { ..., _count: { posts: 3, profile: 1 } }
+// { ..., count: { posts: 3, profile: 1 } }
 ```
 
 ```ts tab="Drizzle" tab-group="orm"
@@ -199,13 +199,13 @@ import { and, eq, getColumns, sql } from 'drizzle-orm';
 const rows = await db
 	.select({
 		...getColumns(users),
-		_count: {
+		count: {
 			posts: sql<number>`(select count(*) from ${posts} where ${and(eq(posts.authorId, users.id), eq(posts.published, true))})`.mapWith(Number),
 			profile: sql<number>`(select count(*) from ${profiles} where ${eq(profiles.userId, users.id)})`.mapWith(Number),
 		},
 	})
 	.from(users);
-// { ..., _count: { posts: 3, profile: 1 } }
+// { ..., count: { posts: 3, profile: 1 } }
 ```
 
 Counts are projected as correlated subqueries in the SQL that materializes that query level. They do not add a count query per parent row.
@@ -231,7 +231,7 @@ export const relations = defineRelations(schema, (r) => ({
 }));
 ```
 
-The relation then behaves like any other to-many relation - `include`, `select`, `_count`, `some` / `every` / `none`, and `connect` / `disconnect` / `set` all work through it, and you never name the junction table in a query:
+The relation then behaves like any other to-many relation - `include`, `select`, `count`, `some` / `every` / `none`, and `connect` / `disconnect` / `set` all work through it, and you never name the junction table in a query:
 
 ```ts tab="better-drizzle" tab-group="orm"
 const users = await client.users.findMany({

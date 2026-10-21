@@ -409,7 +409,7 @@ describe.skipIf(!DATABASE_URL)('Drizzle 1.x migration (PostgreSQL)', () => {
 						take: 1,
 					},
 				},
-				orderBy: [{ invoices: { _count: 'desc' } }, { id: 'asc' }],
+				orderBy: [{ invoices: { count: 'desc' } }, { id: 'asc' }],
 			});
 			expect(
 				accounts.map((row) => [row.id, row.invoices.map((i) => i.id)]),

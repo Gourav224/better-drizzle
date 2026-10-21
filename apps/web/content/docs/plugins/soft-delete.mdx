@@ -88,7 +88,7 @@ Every option is optional. Column names are the property keys in your Drizzle tab
 | `update`, `updateMany`, `updateEach` | deleted rows are not updated |
 | `delete`, `deleteMany` | soft by default: set `column` on live rows instead of deleting |
 | `upsert`, `upsertMany` | not filtered: hiding a deleted row would turn the update into a duplicate insert |
-| `include`, relation `select`, relation filters (`some`, `every`, `none`, `is`, `isNot`), `_count`, relation sorts | deleted rows always hidden |
+| `include`, relation `select`, relation filters (`some`, `every`, `none`, `is`, `isNot`), `count`, relation sorts | deleted rows always hidden |
 | `connect`, `disconnect`, `set` | deleted rows cannot be linked or unlinked |
 | `$where()` | deleted rows hidden: the condition includes the visibility filter |
 
@@ -105,7 +105,7 @@ await client.users.count({ deleted: 'with' });
 	The plugin now filters through core [model
 	scopes](/docs/plugins/plugin-scopes#model-scopes). Before 0.4.0 it only
 	filtered the root query, so deleted rows appeared in `include`, relation
-	`select`, relation filters, `_count`, and relation sorts. They are hidden
+	`select`, relation filters, `count`, and relation sorts. They are hidden
 	there now, and `connect`/`set` no longer reach deleted rows. Read deleted
 	relations from the root with `deleted: 'with'`, or through
 	`$withoutPlugins()`.

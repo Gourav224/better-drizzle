@@ -1,0 +1,38 @@
+---
+title: Upgrade to 0.4
+description: Rename the relation count key from _count to count before the alias is removed in 0.5.
+icon: ArrowUpCircle
+seoTitle: 'Upgrade better-drizzle to 0.4'
+seoDescription: 'Rename the relation count key from _count to count in include and orderBy in better-drizzle 0.4. The _count alias is deprecated and removed in 0.5.'
+---
+
+## `_count` is now `count`
+
+The relation count key lost its underscore, in `include`, in the result, and in `orderBy`. The `aggregate` and `groupBy` operators use plain names too, so the API has one convention.
+
+```ts tab="Before" tab-group="upgrade"
+const users = await client.users.findMany({
+	include: { _count: { select: { posts: true } } },
+	orderBy: { posts: { _count: 'desc' } },
+});
+// { id: 1, name: 'Ana', _count: { posts: 12 } }
+```
+
+```ts tab="After" tab-group="upgrade"
+const users = await client.users.findMany({
+	include: { count: { select: { posts: true } } },
+	orderBy: { posts: { count: 'desc' } },
+});
+// { id: 1, name: 'Ana', count: { posts: 12 } }
+```
+
+- `_count` still works in 0.4 as a deprecated alias. The types carry `@deprecated`, and the first use in a process emits a `DeprecationWarning` with the code `BETTER_DRIZZLE_COUNT_DEPRECATED`.
+- The result key follows the key you used: `_count` returns `_count`, `count` returns `count`.
+- Using `count` and `_count` in the same `include`, or in the same `orderBy` object, throws `INVALID_ARGS`.
+- The alias is removed in 0.5.
+
+## Reserved names
+
+`count` now always means the relation count in `include`. If a relation is named `count`, rename it before upgrading. See [reserved names](/docs/guides/limitations#reserved-names).
+
+The `better-drizzle/zod`, `better-drizzle/ata`, and cache plugins accept both spellings in 0.4. The ATA JSON Schema marks `_count` as `deprecated`.

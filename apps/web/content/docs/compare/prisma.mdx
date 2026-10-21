@@ -6,7 +6,7 @@ seoTitle: 'better-drizzle vs Prisma'
 seoDescription: 'Compare better-drizzle on Drizzle ORM with Prisma: API mapping for findMany, include, where, upsert, and transactions, plus the honest differences.'
 ---
 
-If you know Prisma Client, most of better-drizzle will look familiar: `findMany`, `where`, `include`, `select`, `upsert`, `_count`. The difference is underneath. better-drizzle reads your **Drizzle** schema, compiles every call to a Drizzle query, and runs it on the driver you chose.
+If you know Prisma Client, most of better-drizzle will look familiar: `findMany`, `where`, `include`, `select`, `upsert`, relation counts. The difference is underneath. better-drizzle reads your **Drizzle** schema, compiles every call to a Drizzle query, and runs it on the driver you chose.
 
 ## Short answer
 
@@ -22,8 +22,8 @@ Choose Prisma when you want its full toolchain from one vendor: its schema langu
 | `findUniqueOrThrow`, `findFirstOrThrow` | `findUnique(...).throw()`, `findFirst(...).throw()` | `.throw(factory)` lets you throw your own error |
 | `findMany({ where, orderBy, skip, take })` | `findMany({ where, orderBy, skip, take })` | negative `take` reverses the order |
 | `include` / `select` | `include` / `select` | mutually exclusive at each level, nested at any depth |
-| `include: { _count: { select: { posts: true } } }` | the same | one correlated subquery, no extra round trip |
-| `orderBy: { posts: { _count: 'desc' } }` | the same | relation sorts are [supported](/docs/querying/reads#ordering-by-relations) |
+| `include: { _count: { select: { posts: true } } }` | `include: { count: { select: { posts: true } } }` | `_count` is renamed to `count`; one correlated subquery, no extra round trip |
+| `orderBy: { posts: { _count: 'desc' } }` | `orderBy: { posts: { count: 'desc' } }` | relation sorts are [supported](/docs/querying/reads#ordering-by-relations) |
 | `equals`, `not`, `in`, `notIn`, `lt`, `lte`, `gt`, `gte` | the same | |
 | `contains`, `startsWith`, `endsWith`, `mode: 'insensitive'` | the same | insensitive mode works on PostgreSQL, MySQL, and SQLite |
 | `AND`, `OR`, `NOT` | the same | |
@@ -59,7 +59,7 @@ const authors = await client.users.findMany({
 	where: { active: true, posts: { some: { published: true } } },
 	include: {
 		posts: { where: { published: true }, orderBy: { id: 'desc' }, take: 3 },
-		_count: { select: { posts: true } },
+		count: { select: { posts: true } },
 	},
 	take: 10,
 });

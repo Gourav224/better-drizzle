@@ -546,7 +546,11 @@ export const createOrderBySchemas = (
 		let target: z.ZodObject | undefined;
 		shape[relationName] = (
 			relation.isMany
-				? applyUnknownKeys(z.object({ _count: direction }), behavior)
+				? z.union([
+						applyUnknownKeys(z.object({ count: direction }), behavior),
+						// Deprecated alias, removed in 0.5.0.
+						applyUnknownKeys(z.object({ _count: direction }), behavior),
+					])
 				: z.lazy(() => {
 						if (target) return target;
 						const entry = getTableEntry(
@@ -554,12 +558,12 @@ export const createOrderBySchemas = (
 							relation.tableName,
 						);
 						const fields = entry.schemas.orderBy.options[0];
-						return (target =
-							'_count' in entry.columns
-								? fields
-								: fields.extend({
-										_count: z.never().optional(),
-									}));
+						const blocked: Record<string, z.ZodType> = {};
+						if (!('count' in entry.columns))
+							blocked.count = z.never().optional();
+						if (!('_count' in entry.columns))
+							blocked._count = z.never().optional();
+						return (target = fields.extend(blocked));
 					})
 		).optional();
 		cursorShape[relationName] = z.never().optional();

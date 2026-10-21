@@ -89,7 +89,7 @@ describe('runtime integration', () => {
 			});
 			expect(posts.map((post) => post.id)).toEqual([6, 5, 3, 4, 1, 2]);
 			const page = await client.users.paginate({
-				orderBy: [{ posts: { _count: 'asc' } }, { id: 'asc' }],
+				orderBy: [{ posts: { count: 'asc' } }, { id: 'asc' }],
 				validate: true,
 			});
 			expect(page.data.map((user) => user.id)).toEqual([5, 3, 4, 1, 2]);
@@ -201,13 +201,13 @@ describe('the registry', () => {
 			order.validate({ author: { parent: { name: 'asc' } } }).valid,
 		).toBe(true);
 		expect(
-			order.validate({ author: { posts: { _count: 'desc' } } }).valid,
+			order.validate({ author: { posts: { count: 'desc' } } }).valid,
 		).toBe(true);
 		for (const value of [
-			{ author: { _count: 'asc' } },
+			{ author: { count: 'asc' } },
 			{ author: [{ name: 'asc' }] },
 			{ author: { posts: { title: 'asc' } } },
-			{ author: { posts: { _count: 'asc', title: 'asc' } } },
+			{ author: { posts: { count: 'asc', title: 'asc' } } },
 			{ author: { parent: { name: 'sideways' } } },
 		])
 			expect(order.validate(value).valid).toBe(false);

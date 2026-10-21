@@ -112,14 +112,14 @@ describe('soft-delete on model scopes', () => {
 		]);
 	});
 
-	test('SD-02: _count and relation sorts ignore deleted rows', async () => {
+	test('SD-02: count and relation sorts ignore deleted rows', async () => {
 		const { db } = createDb();
 
 		const counted = await db.posts.findMany({
-			include: { _count: { select: { comments: true } } },
+			include: { count: { select: { comments: true } } },
 			orderBy: { id: 'asc' },
 		});
-		expect(counted.map((row) => row._count)).toEqual([
+		expect(counted.map((row) => row.count)).toEqual([
 			{ comments: 1 },
 			{ comments: 2 },
 		]);
@@ -127,7 +127,7 @@ describe('soft-delete on model scopes', () => {
 		expect(
 			ids(
 				await db.posts.findMany({
-					orderBy: [{ comments: { _count: 'desc' } }, { id: 'asc' }],
+					orderBy: [{ comments: { count: 'desc' } }, { id: 'asc' }],
 				}),
 			),
 		).toEqual([3, 1]);

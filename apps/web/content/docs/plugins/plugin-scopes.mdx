@@ -12,7 +12,7 @@ Use these APIs when a [plugin](/docs/plugins/writing-plugins) must filter rows a
 
 <Since version="0.4.0" />
 
-A transform only changes the root `where`. A plugin that must filter every statement for a model - relation loads, relation filters, `_count`, relation sorts, writes, upserts, and relation-write lookups - declares a `scope`. The [tenant](/docs/plugins/tenant) and [soft-delete](/docs/plugins/soft-delete) plugins are built on it.
+A transform only changes the root `where`. A plugin that must filter every statement for a model - relation loads, relation filters, `count`, relation sorts, writes, upserts, and relation-write lookups - declares a `scope`. The [tenant](/docs/plugins/tenant) and [soft-delete](/docs/plugins/soft-delete) plugins are built on it.
 
 ```ts
 import { better, definePlugin } from 'better-drizzle';

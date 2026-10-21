@@ -8,7 +8,7 @@ seoDescription: 'Isolate tenants in Drizzle ORM: scope every read, relation, cou
 
 <Since version="0.4.0" />
 
-`better-drizzle/tenant` scopes every model that has a tenant column. A client from `db.$tenant({ organizationId })` only reads and writes rows of that tenant. The filter covers the root query and also relation loads, relation filters, `_count`, relation sorts, writes, upserts, and the lookups behind `connect`, `disconnect`, and `set`. Without a tenant, scoped models throw instead of running unfiltered.
+`better-drizzle/tenant` scopes every model that has a tenant column. A client from `db.$tenant({ organizationId })` only reads and writes rows of that tenant. The filter covers the root query and also relation loads, relation filters, `count`, relation sorts, writes, upserts, and the lookups behind `connect`, `disconnect`, and `set`. Without a tenant, scoped models throw instead of running unfiltered.
 
 <Callout type="warn" title="Experimental">
 	The tenant plugin is experimental in `0.4.x`. Its options and error details
@@ -154,8 +154,8 @@ On a scoped client, the core adds the tenant predicate to every statement that r
 | `paginate`, `cursor` | `data`, `total`, and the navigation flags count only tenant rows |
 | `include`, relation `select`, `.through()` relations | every relation stage, per-parent `take`/`skip` windows included |
 | `some`, `every`, `none`, `is`, `isNot` | rows of other tenants are absent: they never match `some` and never break `every` |
-| `include._count` | counts only tenant rows |
-| `orderBy` a relation field or `_count` | sort values come from tenant rows only |
+| `include.count` | counts only tenant rows |
+| `orderBy` a relation field or `count` | sort values come from tenant rows only |
 | `update`, `delete`, `updateMany`, `deleteMany`, `updateEach` | only tenant rows; an empty `where` stays a no-op |
 | `connect`, `disconnect`, `set` | selectors resolve inside the tenant |
 | `$where()` | the compiled predicate includes the tenant filter |

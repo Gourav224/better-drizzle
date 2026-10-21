@@ -199,10 +199,10 @@ describe('better-drizzle/zod - PostgreSQL bigint schemas', () => {
 });
 
 describe('better-drizzle/zod - strict relation orderBy schemas', () => {
-	test('keeps a real _count scalar column in one-relation sort maps', () => {
+	test('keeps a real count scalar column in one-relation sort maps', () => {
 		const authors = pgTable('zod_count_sort_authors', {
 			id: integer().primaryKey(),
-			_count: integer(),
+			count: integer(),
 		});
 		const books = pgTable('zod_count_sort_books', {
 			id: integer().primaryKey(),
@@ -218,12 +218,12 @@ describe('better-drizzle/zod - strict relation orderBy schemas', () => {
 		}));
 		const orderBy = createZodSchemasRegistry(relations, {}).get('books')!
 			.schemas.orderBy;
-		expect(orderBy.safeParse({ author: { _count: 'asc' } }).success).toBe(
+		expect(orderBy.safeParse({ author: { count: 'asc' } }).success).toBe(
 			true,
 		);
 		expect(
 			orderBy.safeParse({
-				author: { _count: { direction: 'desc', nulls: 'last' } },
+				author: { count: { direction: 'desc', nulls: 'last' } },
 			}).success,
 		).toBe(true);
 	});
@@ -267,7 +267,7 @@ describe('better-drizzle/zod - strict relation orderBy schemas', () => {
 
 		expect(
 			orderBy('users').safeParse([
-				{ groups: { _count: 'desc' } },
+				{ groups: { count: 'desc' } },
 				{ id: 'asc' },
 			]).success,
 		).toBe(true);
@@ -279,15 +279,15 @@ describe('better-drizzle/zod - strict relation orderBy schemas', () => {
 		expect(
 			query.safeParse({
 				include: {
-					users: { orderBy: { groups: { _count: 'asc' } } },
+					users: { orderBy: { groups: { count: 'asc' } } },
 				},
-				orderBy: { users: { _count: 'desc' } },
+				orderBy: { users: { count: 'desc' } },
 			}).success,
 		).toBe(true);
 
 		expect(
 			orderBy('users').safeParse({
-				groups: { _count: 'desc', name: 'asc' },
+				groups: { count: 'desc', name: 'asc' },
 			}).success,
 		).toBe(false);
 		expect(
@@ -296,7 +296,7 @@ describe('better-drizzle/zod - strict relation orderBy schemas', () => {
 			}).success,
 		).toBe(false);
 		expect(
-			orderBy('members').safeParse({ user: { _count: 'asc' } }).success,
+			orderBy('members').safeParse({ user: { count: 'asc' } }).success,
 		).toBe(false);
 		expect(
 			query.safeParse({
@@ -539,8 +539,8 @@ describe('better-drizzle/zod - generated schemas', () => {
 			post: { author: { age: { direction: 'desc', nulls: 'last' } } },
 		});
 		expect(
-			ctx.client.users.$zod.orderBy.parse({ posts: { _count: 'desc' } }),
-		).toEqual({ posts: { _count: 'desc' } });
+			ctx.client.users.$zod.orderBy.parse({ posts: { count: 'desc' } }),
+		).toEqual({ posts: { count: 'desc' } });
 
 		const posts = await ctx.client.posts.findMany({
 			orderBy: [{ author: { name: 'desc' } }, { id: 'asc' }],
@@ -549,7 +549,7 @@ describe('better-drizzle/zod - generated schemas', () => {
 		expect(posts.map((post) => post.id)).toEqual([6, 5, 3, 4, 1, 2]);
 
 		const users = await ctx.client.users.findMany({
-			orderBy: [{ posts: { _count: 'asc' } }, { id: 'asc' }],
+			orderBy: [{ posts: { count: 'asc' } }, { id: 'asc' }],
 			select: { id: true },
 		});
 		expect(users.map((user) => user.id)).toEqual([5, 3, 4, 1, 2]);
@@ -565,10 +565,10 @@ describe('better-drizzle/zod - generated schemas', () => {
 			false,
 		);
 		expect(users.safeParse({ posts: 'desc' }).success).toBe(false);
-		expect(users.safeParse({ posts: { _count: 'sideways' } }).success).toBe(
+		expect(users.safeParse({ posts: { count: 'sideways' } }).success).toBe(
 			false,
 		);
-		expect(posts.safeParse({ author: { _count: 'asc' } }).success).toBe(
+		expect(posts.safeParse({ author: { count: 'asc' } }).success).toBe(
 			false,
 		);
 		expect(posts.safeParse({ author: 'asc' }).success).toBe(false);
@@ -1125,7 +1125,7 @@ describe('better-drizzle/zod - query arg validation', () => {
 			Promise.resolve(
 				ctx.client.users.cursor({
 					limit: 2,
-					orderBy: { posts: { _count: 'desc' } },
+					orderBy: { posts: { count: 'desc' } },
 				}),
 			),
 		).rejects.toThrow('Zod validation failed for cursor args');

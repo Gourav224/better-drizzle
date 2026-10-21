@@ -452,13 +452,13 @@ export const runLeakSuite = (harness: LeakHarness) => {
 			]);
 		});
 
-		test('SCOPE-04: include._count counts only tenant rows', async () => {
+		test('SCOPE-04: include.count counts only tenant rows', async () => {
 			const rows = await scoped().projects.findMany({
-				include: { _count: { select: { members: true, tasks: true } } },
+				include: { count: { select: { members: true, tasks: true } } },
 				orderBy: { id: 'asc' },
 			});
 
-			expect(rows.map((row) => row._count)).toEqual([
+			expect(rows.map((row) => row.count)).toEqual([
 				{ members: 1, tasks: 1 },
 				{ members: 2, tasks: 2 },
 			]);
@@ -470,7 +470,7 @@ export const runLeakSuite = (harness: LeakHarness) => {
 			expect(
 				ordered(
 					await a.projects.findMany({
-						orderBy: [{ tasks: { _count: 'desc' } }, { id: 'asc' }],
+						orderBy: [{ tasks: { count: 'desc' } }, { id: 'asc' }],
 					}),
 				),
 			).toEqual([2, 1]);
@@ -478,7 +478,7 @@ export const runLeakSuite = (harness: LeakHarness) => {
 				ordered(
 					await a.projects.findMany({
 						orderBy: [
-							{ members: { _count: 'desc' } },
+							{ members: { count: 'desc' } },
 							{ id: 'asc' },
 						],
 					}),
@@ -514,7 +514,7 @@ export const runLeakSuite = (harness: LeakHarness) => {
 			expect(sharedPage.pagination.hasNext).toBe(false);
 			const rows = await a.projects.findMany({
 				include: {
-					_count: { select: { labels: true, templates: true } },
+					count: { select: { labels: true, templates: true } },
 					labels: { orderBy: { id: 'asc' } },
 					templates: { orderBy: { id: 'asc' } },
 				},
@@ -528,7 +528,7 @@ export const runLeakSuite = (harness: LeakHarness) => {
 				[1, 3],
 				[],
 			]);
-			expect(rows.map((row) => row._count)).toEqual([
+			expect(rows.map((row) => row.count)).toEqual([
 				{ labels: 2, templates: 2 },
 				{ labels: 0, templates: 0 },
 			]);
@@ -550,7 +550,7 @@ export const runLeakSuite = (harness: LeakHarness) => {
 				ordered(
 					await a.projects.findMany({
 						orderBy: [
-							{ labels: { _count: 'desc' } },
+							{ labels: { count: 'desc' } },
 							{ id: 'asc' },
 						],
 					}),

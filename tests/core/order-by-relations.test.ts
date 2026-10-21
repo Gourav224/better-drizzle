@@ -35,7 +35,7 @@ describe('orderBy relation fields', () => {
 	test('sorts by the row count of a many relation', async () => {
 		const db = createDb();
 		const rows = await db.authors.findMany({
-			orderBy: [{ posts: { _count: 'desc' } }, { id: 'asc' }],
+			orderBy: [{ posts: { count: 'desc' } }, { id: 'asc' }],
 		});
 		expect(ids(rows)).toEqual([2, 1, 3, 4]);
 	});
@@ -45,14 +45,14 @@ describe('orderBy relation fields', () => {
 		expect(
 			ids(
 				await db.posts.findMany({
-					orderBy: [{ tags: { _count: 'desc' } }, { id: 'asc' }],
+					orderBy: [{ tags: { count: 'desc' } }, { id: 'asc' }],
 				}),
 			),
 		).toEqual([1, 5, 3, 2, 4]);
 		expect(
 			ids(
 				await db.tags.findMany({
-					orderBy: { posts: { _count: 'asc' } },
+					orderBy: { posts: { count: 'asc' } },
 				}),
 			),
 		).toEqual([3, 2, 1]);
@@ -61,7 +61,7 @@ describe('orderBy relation fields', () => {
 	test('sorts by a to-many count behind a one relation', async () => {
 		const db = createDb();
 		const rows = await db.profiles.findMany({
-			orderBy: [{ author: { posts: { _count: 'desc' } } }, { id: 'asc' }],
+			orderBy: [{ author: { posts: { count: 'desc' } } }, { id: 'asc' }],
 		});
 		expect(ids(rows)).toEqual([2, 1, 3]);
 	});
@@ -93,7 +93,7 @@ describe('orderBy relation fields', () => {
 								},
 							},
 						},
-						{ children: { _count: 'desc' } },
+						{ children: { count: 'desc' } },
 						{ id: 'desc' },
 					],
 				}),
@@ -106,7 +106,7 @@ describe('orderBy relation fields', () => {
 		const authorsWithPosts = await db.authors.findMany({
 			include: {
 				posts: {
-					orderBy: [{ tags: { _count: 'desc' } }, { id: 'asc' }],
+					orderBy: [{ tags: { count: 'desc' } }, { id: 'asc' }],
 				},
 			},
 			where: { id: 2 },
@@ -162,7 +162,7 @@ describe('orderBy relation fields', () => {
 		expect(
 			(
 				await db.authors.findOne({
-					orderBy: { posts: { _count: 'desc' } },
+					orderBy: { posts: { count: 'desc' } },
 				})
 			)?.id,
 		).toBe(2);
@@ -207,11 +207,11 @@ describe('orderBy relation fields', () => {
 		const db = createDb();
 		const invalid = [
 			{ author: 'asc' },
-			{ author: { _count: 'asc' } },
+			{ author: { count: 'asc' } },
 			{ posts: 'desc' },
 			{ posts: { title: 'asc' } },
-			{ posts: { _count: 'up' } },
-			{ posts: { _count: 'asc', title: 'asc' } },
+			{ posts: { count: 'up' } },
+			{ posts: { count: 'asc', title: 'asc' } },
 		];
 		for (const orderBy of invalid) {
 			const delegate = ('author' in orderBy
@@ -250,7 +250,7 @@ describe('orderBy relation fields', () => {
 						posts: {
 							cursor: { id: 2 },
 							orderBy: [
-								{ tags: { _count: 'asc' } },
+								{ tags: { count: 'asc' } },
 								{ id: 'asc' },
 							],
 						},

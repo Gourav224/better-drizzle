@@ -200,7 +200,7 @@ describe('massive sqlite reads', () => {
 		try {
 			const user = await ctx.client.users.findFirst({
 				include: {
-					_count: {
+					count: {
 						select: {
 							groups: true,
 							posts: { where: { published: true } },
@@ -211,7 +211,7 @@ describe('massive sqlite reads', () => {
 				where: { id: 1 },
 			});
 
-			expect(user?._count).toEqual({ groups: 3, posts: 3, profile: 1 });
+			expect(user?.count).toEqual({ groups: 3, posts: 3, profile: 1 });
 			expect(statements).toHaveLength(1);
 			expect(statements[0]).toContain('count(*)');
 		} finally {
@@ -222,7 +222,7 @@ describe('massive sqlite reads', () => {
 	test('projects filtered counts across the complete seeded dataset', async () => {
 		const users = await ctx.client.users.findMany({
 			include: {
-				_count: {
+				count: {
 					select: {
 						groups: true,
 						posts: { where: { published: true } },
@@ -238,17 +238,17 @@ describe('massive sqlite reads', () => {
 			let publishedPosts = 0;
 			for (let offset = 0; offset < POSTS_PER_USER; offset += 1)
 				if ((firstPostId + offset) % 3 !== 0) publishedPosts += 1;
-			expect(user._count.groups).toBe(3);
-			expect(user._count.posts).toBe(publishedPosts);
+			expect(user.count.groups).toBe(3);
+			expect(user.count.posts).toBe(publishedPosts);
 		}
 	});
 
 	test('projects counts alongside nested relation loading', async () => {
 		const user = await ctx.client.users.findFirst({
 			include: {
-				_count: { select: { posts: true } },
+				count: { select: { posts: true } },
 				posts: {
-					include: { _count: { select: { comments: true } } },
+					include: { count: { select: { comments: true } } },
 					orderBy: { id: 'asc' },
 					take: 2,
 				},
@@ -256,16 +256,16 @@ describe('massive sqlite reads', () => {
 			where: { id: 1 },
 		});
 
-		expect(user?._count.posts).toBe(POSTS_PER_USER);
+		expect(user?.count.posts).toBe(POSTS_PER_USER);
 		expect(user?.posts).toHaveLength(2);
 		for (const post of user?.posts ?? [])
-			expect(post._count.comments).toBe(COMMENTS_PER_POST);
+			expect(post.count.comments).toBe(COMMENTS_PER_POST);
 	});
 
 	test('aliases raw SQL relation count filters', async () => {
 		const user = await ctx.client.users.findFirst({
 			include: {
-				_count: {
+				count: {
 					select: {
 						posts: { where: sql`${posts.published} = ${true}` },
 					},
@@ -274,24 +274,24 @@ describe('massive sqlite reads', () => {
 			where: { id: 1 },
 		});
 
-		expect(user?._count.posts).toBe(3);
+		expect(user?.count.posts).toBe(3);
 	});
 
 	test('rejects invalid relation count selections', async () => {
 		await expect(
 			Promise.resolve(
 				ctx.client.users.findMany({
-					include: { _count: { select: {} } },
+					include: { count: { select: {} } },
 				} as never),
 			),
-		).rejects.toThrow('_count.select must include at least one relation');
+		).rejects.toThrow('count.select must include at least one relation');
 		await expect(
 			Promise.resolve(
 				ctx.client.users.findMany({
-					include: { _count: { select: { missing: true } } },
+					include: { count: { select: { missing: true } } },
 				} as never),
 			),
-		).rejects.toThrow('Unknown relation "missing" in _count');
+		).rejects.toThrow('Unknown relation "missing" in count');
 	});
 
 	test('hydrates a deep graph with per-parent filters and window pagination', async () => {

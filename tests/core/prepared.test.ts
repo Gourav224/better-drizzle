@@ -237,7 +237,7 @@ describe('prepared statements', () => {
 		const withPosts = ctx.better.users
 			.findMany({
 				include: {
-					_count: {
+					count: {
 						select: {
 							posts: { where: { published: param('published') } },
 						},
@@ -254,7 +254,7 @@ describe('prepared statements', () => {
 				expect(await withPosts.execute({ active, published })).toEqual(
 					await ctx.better.users.findMany({
 						include: {
-							_count: {
+							count: {
 								select: { posts: { where: { published } } },
 							},
 							posts: { orderBy: { id: 'asc' } },

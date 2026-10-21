@@ -221,7 +221,7 @@ export const readDependencies = (
 			walkWhere(target, value);
 		}
 	};
-	// A relation sort key holds the related model's `orderBy` or `{ _count }`.
+	// A relation sort key holds the related model's `orderBy` or `{ count }`.
 	const walkOrderBy = (source: PluginModelInfo, orderBy: unknown): void => {
 		if (Array.isArray(orderBy)) {
 			for (const member of orderBy) walkOrderBy(source, member);
@@ -241,7 +241,7 @@ export const readDependencies = (
 		for (const key in projection) {
 			const value = projection[key];
 			if (!value) continue;
-			if (key === '_count') {
+			if (key === 'count' || key === '_count') {
 				const counted = isRecord(value) ? value.select : undefined;
 				if (!isRecord(counted)) {
 					for (const name in source.relations)

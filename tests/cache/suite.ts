@@ -354,7 +354,7 @@ export const defineCacheSuite = (
 			expect((await read())?.groups).toHaveLength(2);
 		});
 
-		test('relation filters and _count are dependencies', async () => {
+		test('relation filters and count are dependencies', async () => {
 			const { client } = createClient(createStore());
 			const authors = () =>
 				client.users.findMany({
@@ -364,19 +364,19 @@ export const defineCacheSuite = (
 			const counts = () =>
 				client.users.findUnique({
 					cache: true,
-					include: { _count: { select: { posts: true } } },
+					include: { count: { select: { posts: true } } },
 					where: { id: 2 },
 				});
 
 			expect(await authors()).toHaveLength(0);
-			expect((await counts())?._count.posts).toBe(1);
+			expect((await counts())?.count.posts).toBe(1);
 
 			await client.posts.create({
 				data: { authorId: 2, id: 5, title: 'Fresh' },
 			});
 
 			expect(await authors()).toHaveLength(1);
-			expect((await counts())?._count.posts).toBe(2);
+			expect((await counts())?.count.posts).toBe(2);
 		});
 
 		test('relation sort keys are dependencies', async () => {
@@ -425,7 +425,7 @@ export const defineCacheSuite = (
 					cache: true,
 					include: {
 						posts: {
-							orderBy: { author: { groups: { _count: 'desc' } } },
+							orderBy: { author: { groups: { count: 'desc' } } },
 						},
 					},
 					where: { id: 1 },

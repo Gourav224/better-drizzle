@@ -21,6 +21,7 @@ import type {
 	TableRuntime,
 	WhereCompilerContext,
 } from '../../types';
+import { warnLegacyCount } from '../deprecations';
 import { BetterDrizzleError, BetterDrizzleErrorCode } from '../errors';
 import {
 	buildRelationCount,
@@ -108,17 +109,40 @@ const primaryKeyColumns = (runtime: TableRuntime) => {
 	return columns;
 };
 
+/**
+ * The key that holds the relation count in `include`: `count`, or the
+ * deprecated `_count` alias. The result uses the same key.
+ */
+export const getCountKey = (
+	runtime: TableRuntime,
+	include: unknown,
+): 'count' | '_count' | undefined => {
+	if (!include || typeof include !== 'object') return;
+	const hasCount = 'count' in include;
+	if (!('_count' in include)) return hasCount ? 'count' : undefined;
+	if (hasCount)
+		throw new BetterDrizzleError({
+			code: BetterDrizzleErrorCode.InvalidArgs,
+			message: 'Use either count or the deprecated _count, not both.',
+			operation: 'relation',
+			table: runtime.dbName,
+		});
+	warnLegacyCount();
+	return '_count';
+};
+
 const getCountSelection = (
 	runtime: TableRuntime,
 	args: { include?: unknown } | undefined,
 ) => {
 	const include = args?.include as Record<string, unknown> | undefined;
-	if (!include || !('_count' in include)) return;
-	const count = include._count;
+	const key = getCountKey(runtime, include);
+	if (!include || !key) return;
+	const count = include[key];
 	if (!isSimpleRecord(count) || !isSimpleRecord(count.select))
 		throw new BetterDrizzleError({
 			code: BetterDrizzleErrorCode.InvalidArgs,
-			message: '_count must contain a non-empty select object.',
+			message: `${key} must contain a non-empty select object.`,
 			operation: 'relation',
 			table: runtime.dbName,
 		});
@@ -131,7 +155,7 @@ const getCountSelection = (
 			throw new BetterDrizzleError({
 				code: BetterDrizzleErrorCode.InvalidArgs,
 				details: { relation: relationName },
-				message: `Unknown relation "${relationName}" in _count on "${runtime.dbName}".`,
+				message: `Unknown relation "${relationName}" in ${key} on "${runtime.dbName}".`,
 				operation: 'relation',
 				table: runtime.dbName,
 			});
@@ -144,7 +168,7 @@ const getCountSelection = (
 			throw new BetterDrizzleError({
 				code: BetterDrizzleErrorCode.InvalidArgs,
 				details: { relation: relationName },
-				message: `_count relation "${relationName}" must be true or contain only where.`,
+				message: `${key} relation "${relationName}" must be true or contain only where.`,
 				operation: 'relation',
 				table: runtime.dbName,
 			});
@@ -153,7 +177,7 @@ const getCountSelection = (
 	if (!hasSelection)
 		throw new BetterDrizzleError({
 			code: BetterDrizzleErrorCode.InvalidArgs,
-			message: '_count.select must include at least one relation.',
+			message: `${key}.select must include at least one relation.`,
 			operation: 'relation',
 			table: runtime.dbName,
 		});
@@ -183,7 +207,7 @@ const getRelationSource = (
 
 	let hasRelations = false;
 	for (const key in source) {
-		if (include && key === '_count') continue;
+		if (include && (key === 'count' || key === '_count')) continue;
 		if (runtime.unsupportedRelations[key])
 			throw new BetterDrizzleError({
 				code: BetterDrizzleErrorCode.OperationError,
@@ -250,6 +274,9 @@ export const prepareRelationalRead = <Schema extends AnySchema, Meta>(
 ) => {
 	const runtime = getTableRuntime(context, tableName as string);
 	const counts = getCountSelection(runtime, args);
+	const countKey = counts
+		? getCountKey(runtime, args?.include)
+		: undefined;
 	const source = validateProjection(context, runtime, args);
 	if (!source) return;
 
@@ -257,7 +284,7 @@ export const prepareRelationalRead = <Schema extends AnySchema, Meta>(
 	if (!select)
 		return {
 			args: counts
-				? { ...args, include: { _count: { select: counts } } }
+				? { ...args, include: { [countKey as string]: { select: counts } } }
 				: { ...args, include: undefined },
 			source,
 		};
@@ -389,8 +416,9 @@ const getTargetSelection = <Schema extends AnySchema, Meta>(
 		}
 	const counts = getRelationCountSelection(context, runtime, args);
 	if (counts) {
-		selection._count = counts;
-		visible.add('_count');
+		const countKey = getCountKey(runtime, include) as string;
+		selection[countKey] = counts;
+		visible.add(countKey);
 	}
 	return { selection, visible };
 };

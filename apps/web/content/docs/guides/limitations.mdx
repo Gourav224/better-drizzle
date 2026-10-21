@@ -10,7 +10,7 @@ better-drizzle covers the common repository calls and leaves the rest to Drizzle
 
 ## No `groupBy` or aggregates beyond count
 
-Delegates expose `count()` and `exists()`, and `include: { _count: { select: { ... } } }` projects relation counts. There is no `groupBy`, `sum`, `avg`, `min`, or `max`. Use the Drizzle query builder for those:
+Delegates expose `count()` and `exists()`, and `include: { count: { select: { ... } } }` projects relation counts. There is no `groupBy`, `sum`, `avg`, `min`, or `max`. Use the Drizzle query builder for those:
 
 ```ts
 import { avg, count, eq } from 'drizzle-orm';
@@ -38,7 +38,7 @@ await client.users.findMany({
 
 When `nulls` is omitted, the database default applies. Explicit null placement is supported by PostgreSQL and SQLite using their `NULLS FIRST` / `NULLS LAST` syntax; MySQL uses an equivalent `IS NULL` ordering term. Better Drizzle fails during client initialization if it cannot identify the provider's dialect.
 
-It also accepts [relation keys](/docs/querying/reads#ordering-by-relations): fields of a `one` relation, nested to any depth, and `{ _count }` for a `many` or many-to-many relation. Other aggregates (`_max`, `_min`, `_sum`, `_avg`), `_count` with a `where` filter, and relation sorts combined with cursor pagination are not supported.
+It also accepts [relation keys](/docs/querying/reads#ordering-by-relations): fields of a `one` relation, nested to any depth, and `{ count }` for a `many` or many-to-many relation. Other aggregates (`_max`, `_min`, `_sum`, `_avg`), `count` with a `where` filter, and relation sorts combined with cursor pagination are not supported.
 
 `orderBy` does not support SQL expressions. Use Drizzle directly for those cases:
 
@@ -51,6 +51,12 @@ const rows = await db
 	.orderBy(sql`${posts.publishedAt} desc nulls last`);
 ```
 
+## Reserved names
+
+`count` is reserved in two places. In `include`, the key `count` always means the relation count, so a relation named `count` cannot be loaded through `include`. In `orderBy`, `{ posts: { count: 'desc' } }` always means the relation count on a to-many relation, so a to-many relation named `count` cannot be sorted by its own fields. A `one` relation can still sort by a scalar column named `count`.
+
+Rename the relation or column to avoid the collision. The `_count` alias was a deprecated way around it and is removed in 0.5; an escape hatch for the aggregate operators will be provided where one is needed.
+
 ## Pagination inputs
 
 - `paginate()` takes `page` and `perPage`, or `limit` and `skip`. `page` computes `skip`, so the two cannot be combined.
@@ -58,9 +64,9 @@ const rows = await db
 
 ## Transforms apply to the root query only
 
-Plugin `transform()` runs once per operation, on the root query. Relation loads from `include` or relation `select`, and `_count` projections, are built by the batched loader and do not pass through transforms, so a `where` added by a transform does not reach nested relations.
+Plugin `transform()` runs once per operation, on the root query. Relation loads from `include` or relation `select`, and `count` projections, are built by the batched loader and do not pass through transforms, so a `where` added by a transform does not reach nested relations.
 
-Plugins that must filter every level declare a [model scope](/docs/plugins/plugin-scopes#model-scopes) instead. Since 0.4.0, `better-drizzle/soft-delete` and `better-drizzle/tenant` are model scopes, so nested reads (include, relation select and filters, `_count`, relation sorts) hide deleted rows and other tenants' rows. A custom plugin that only uses `transform()` should filter nested relations explicitly:
+Plugins that must filter every level declare a [model scope](/docs/plugins/plugin-scopes#model-scopes) instead. Since 0.4.0, `better-drizzle/soft-delete` and `better-drizzle/tenant` are model scopes, so nested reads (include, relation select and filters, `count`, relation sorts) hide deleted rows and other tenants' rows. A custom plugin that only uses `transform()` should filter nested relations explicitly:
 
 ```ts
 const users = await client.users.findMany({

@@ -63,6 +63,7 @@ import {
 import { getPrimaryKeyWhere, getTableRuntime, isSimpleRecord } from './context';
 import {
 	applyRelationWrites,
+	getCountKey,
 	getRelationCountSelection,
 	hasRelationWrites,
 	hydrateRelations,
@@ -1506,7 +1507,8 @@ const getDirectSelection = (
 		}
 
 	if (counts) {
-		selection._count = counts;
+		selection[getCountKey(runtime, include) as string] = counts;
+		
 		hasSelection = true;
 	}
 
@@ -1519,7 +1521,7 @@ const canUseDirectRead = (
 ) =>
 	(!args?.include ||
 		Object.keys(args.include as Record<string, unknown>).every(
-			(key) => key === '_count',
+			(key) => key === 'count' || key === '_count',
 		)) &&
 	!hasRelationSelection(
 		runtime,

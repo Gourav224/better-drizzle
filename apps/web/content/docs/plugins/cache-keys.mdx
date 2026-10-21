@@ -106,7 +106,7 @@ The plugin never searches Redis for keys to delete. Instead, every entry stores 
 
 `<model>` is the schema key (`users`), not the database table name. Use the same key in `models` options and invalidation hints.
 
-"The read touches the model" covers the root model and every model reached through `include`, a relation `select`, `_count`, or a relation filter in `where` such as `{ posts: { some: { published: true } } }`. `.through()` relations also depend on the junction table.
+"The read touches the model" covers the root model and every model reached through `include`, a relation `select`, `count`, or a relation filter in `where` such as `{ posts: { some: { published: true } } }`. `.through()` relations also depend on the junction table.
 
 A `where` pins a primary key when its top level, or one of its top-level `AND` members, sets every primary key column to a value (`{ id: 1 }` or `{ id: { equals: 1 } }`). Other conditions next to it may narrow the result further, and the read still depends only on that row.
 

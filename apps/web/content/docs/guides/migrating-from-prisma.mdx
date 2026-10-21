@@ -142,7 +142,8 @@ const post = await client.transaction(async (tx) => {
 });
 ```
 
-- **Aggregates**: `aggregate` and `groupBy` move to the Drizzle query builder on `db`. `count` and `_count` stay on the client.
+- **Aggregates**: `aggregate` and `groupBy` move to the Drizzle query builder on `db`. `count()` stays on the client.
+- **Relation counts**: Prisma's `_count` is `count` here, in `include` and in `orderBy`. The result key is `count` too. `_count` still works as a deprecated alias in 0.4 and is removed in 0.5.
 
 ## 6. Transactions
 

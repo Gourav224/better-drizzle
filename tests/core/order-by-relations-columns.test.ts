@@ -7,9 +7,9 @@ import { integer, sqliteTable } from 'drizzle-orm/sqlite-core';
 
 import { better } from '../../src';
 
-test('one relation sorts preserve a target scalar column named _count', async () => {
+test('one relation sorts preserve a target scalar column named count', async () => {
 	const authors = sqliteTable('count_authors', {
-		_count: integer('count_value').notNull(),
+		count: integer('count_value').notNull(),
 		id: integer('id').primaryKey(),
 	});
 	const posts = sqliteTable('count_posts', {
@@ -34,14 +34,14 @@ INSERT INTO count_posts VALUES (1, 1), (2, 2), (3, 2);
 		expect(
 			(
 				await db.posts.findMany({
-					orderBy: [{ author: { _count: 'asc' } }, { id: 'asc' }],
+					orderBy: [{ author: { count: 'asc' } }, { id: 'asc' }],
 				})
 			).map((post) => post.id),
 		).toEqual([2, 3, 1]);
 		expect(
 			(
 				await db.authors.findMany({
-					orderBy: [{ posts: { _count: 'desc' } }, { id: 'asc' }],
+					orderBy: [{ posts: { count: 'desc' } }, { id: 'asc' }],
 				})
 			).map((author) => author.id),
 		).toEqual([2, 1]);

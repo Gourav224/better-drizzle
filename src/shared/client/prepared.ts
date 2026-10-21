@@ -183,9 +183,10 @@ const prepareRows = <Schema extends AnySchema, Meta>(
 		: prepareRelationalRead(context, tableName, args);
 	if (relational) {
 		const nested: string[] = [];
-		// `_count` compiles into the root query, so its params are prepared.
+		// `count` compiles into the root query, so its params are prepared.
 		for (const key in relational.source)
-			if (key !== '_count') collectParams(relational.source[key], nested);
+			if (key !== 'count' && key !== '_count')
+				collectParams(relational.source[key], nested);
 		if (nested.length)
 			throw preparedError(
 				BetterDrizzleErrorCode.PreparedUnsupported,

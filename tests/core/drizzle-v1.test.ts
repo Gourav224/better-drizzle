@@ -366,10 +366,10 @@ describe('relation metadata from defineRelations', () => {
 		).toBe(1);
 
 		const counted = await ctx.client.users.findMany({
-			include: { _count: { select: { posts: true, reviews: true } } },
+			include: { count: { select: { posts: true, reviews: true } } },
 			orderBy: { id: 'asc' },
 		});
-		expect(counted.map((user) => user._count)).toEqual([
+		expect(counted.map((user) => user.count)).toEqual([
 			{ posts: 2, reviews: 1 },
 			{ posts: 1, reviews: 1 },
 			{ posts: 1, reviews: 1 },
@@ -461,10 +461,10 @@ describe('relation metadata from defineRelations', () => {
 			}),
 		).toBe(1);
 		const counted = await ctx.client.groups.findMany({
-			include: { _count: { select: { members: true } } },
+			include: { count: { select: { members: true } } },
 			orderBy: { id: 'asc' },
 		});
-		expect(counted.map((group) => group._count.members)).toEqual([1, 2]);
+		expect(counted.map((group) => group.count.members)).toEqual([1, 2]);
 		ctx.close();
 	});
 });
@@ -502,7 +502,7 @@ describe('relations the loader rejects', () => {
 		ctx.close();
 	});
 
-	test('filtered relations fail on select and _count as well', async () => {
+	test('filtered relations fail on select and count as well', async () => {
 		const sqlite = createDatabase();
 		const filtered = defineRelations({ posts, users }, (r) => ({
 			users: {
@@ -527,7 +527,7 @@ describe('relations the loader rejects', () => {
 		await expect(
 			Promise.resolve(
 				client.users.findMany({
-					include: { _count: { select: { bigPosts: true } } },
+					include: { count: { select: { bigPosts: true } } },
 				} as never),
 			),
 		).rejects.toThrow('bigPosts');

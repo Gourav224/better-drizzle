@@ -319,6 +319,7 @@ export const createAtaSchemasRegistry = <
 			projection && typeof projection === 'object'
 				? Object.keys(projection as Record<string, unknown>).filter(
 						(key) =>
+							key === 'count' ||
 							key === '_count' ||
 							!(key in (get(tableName)?.columns ?? {})),
 					)

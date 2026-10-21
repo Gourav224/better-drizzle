@@ -92,7 +92,7 @@ const scoped = client.$tenant({ organizationId: currentTenant });
 await scoped.projects.findMany({ include: { tasks: true } });
 ```
 
-The plugin filters through core model scopes, so the tenant predicate reaches relation loads, relation filters, `_count`, relation sorts, writes, upserts, and the lookups behind `connect`, `disconnect`, and `set`. It stamps tenant columns on create, fails closed without a tenant, denies raw SQL on scoped clients by default, and can set PostgreSQL row-level security settings.
+The plugin filters through core model scopes, so the tenant predicate reaches relation loads, relation filters, `count`, relation sorts, writes, upserts, and the lookups behind `connect`, `disconnect`, and `set`. It stamps tenant columns on create, fails closed without a tenant, denies raw SQL on scoped clients by default, and can set PostgreSQL row-level security settings.
 
 Combine both: `$tenant()` scopes the data, and `$withContext()` (or `meta`) carries the request ids your hooks log.
 
@@ -105,7 +105,7 @@ const scoped = client
 <Callout title="Root-only transforms are not isolation">
 	A [plugin transform](/docs/plugins/writing-plugins#transforms) that adds
 	`{ tenantId }` to `operation.where` only changes the root query. Relation
-	loads, relation filters, `_count`, relation writes, and raw SQL run without
+	loads, relation filters, `count`, relation writes, and raw SQL run without
 	it, and a call without the tenant runs unfiltered. Use the tenant plugin, or
 	declare a [model scope](/docs/plugins/plugin-scopes#model-scopes) in your
 	own plugin, when tenants must never see each other's data.

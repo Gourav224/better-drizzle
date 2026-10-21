@@ -95,7 +95,7 @@ const admins = await listAdmins.execute();
 | `in` / `notIn` | `{ id: { in: param('ids') } }`, value `number[]` | PostgreSQL |
 | Combinators | `{ OR: [{ name: param('name') }, { email: param('email') }] }` | all |
 | Relation filters | `{ posts: { some: { score: { gte: param('score') } } } }` | all |
-| `include._count` filters | `{ _count: { select: { posts: { where: { published: param('p') } } } } }` | all |
+| `include.count` filters | `{ count: { select: { posts: { where: { published: param('p') } } } } }` | all |
 | Array filters | `{ tags: { has: param('tag') } }`, `hasSome`, `some`, ... | PostgreSQL |
 | JSONB paths | `{ profile: { 'address.city': param('city') } }` | PostgreSQL |
 | `take` / `skip` | `{ take: param('take'), skip: param('skip') }` | all |
@@ -194,7 +194,7 @@ prepared, and each relation level still loads with its own query on every
 execution, because those queries depend on the root rows. Params therefore
 cannot appear inside a relation's `include` / `select` args, and `.prepare()`
 fails with `PREPARED_UNSUPPORTED` when they do. Relation filters in `where`
-and `include._count` filters compile into the root query, so they accept
+and `include.count` filters compile into the root query, so they accept
 params.
 
 ```ts

@@ -44,7 +44,7 @@ test('filtered relations fail instead of being ignored', async () => {
 	await expect(
 		Promise.resolve(
 			db.users.findMany({
-				orderBy: { publishedPosts: { _count: 'asc' } },
+				orderBy: { publishedPosts: { count: 'asc' } },
 			}),
 		),
 	).rejects.toThrow('cannot be sorted');

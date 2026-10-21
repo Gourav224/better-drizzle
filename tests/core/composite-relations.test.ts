@@ -7,7 +7,7 @@ import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 import { better } from '../../src';
 
-test('many-to-many _count correlates every source key column', async () => {
+test('many-to-many count correlates every source key column', async () => {
 	const owners = sqliteTable('composite_owners', {
 		orgId: integer('org_id').notNull(),
 		id: integer('id').notNull(),
@@ -44,14 +44,14 @@ test('many-to-many _count correlates every source key column', async () => {
 		`);
 		const db = better(drizzle({ client: sqlite, relations }));
 		const rows = await db.owners.findMany({
-			include: { _count: { select: { labels: true } }, labels: true },
+			include: { count: { select: { labels: true } }, labels: true },
 			orderBy: { id: 'asc' },
 		});
 		expect(rows.map((row) => row.labels.map((label) => label.id))).toEqual([
 			[10],
 			[20],
 		]);
-		expect(rows.map((row) => row._count.labels)).toEqual([1, 1]);
+		expect(rows.map((row) => row.count.labels)).toEqual([1, 1]);
 	} finally {
 		sqlite.close();
 	}

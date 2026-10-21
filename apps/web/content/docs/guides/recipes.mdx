@@ -156,12 +156,12 @@ const postRows = await db.select().from(ranked).where(lte(ranked.rank, 3));
 
 ## Count related rows
 
-Use `_count` instead of loading the rows. It becomes a subquery in the same statement:
+Use `count` instead of loading the rows. It becomes a subquery in the same statement:
 
 ```ts
 const authors = await client.users.findMany({
 	include: {
-		_count: {
+		count: {
 			select: {
 				posts: { where: { published: true } },
 			},
@@ -169,7 +169,7 @@ const authors = await client.users.findMany({
 	},
 });
 
-authors[0]?._count.posts; // number
+authors[0]?.count.posts; // number
 ```
 
 ## Get or create

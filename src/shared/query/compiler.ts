@@ -46,6 +46,7 @@ import type {
 } from '../../types';
 import { getTableRuntime } from '../client/context';
 import { scopePredicate } from '../client/scopes';
+import { warnLegacyCount } from '../deprecations';
 import { BetterDrizzleError, BetterDrizzleErrorCode } from '../errors';
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -1293,7 +1294,7 @@ export const compileWhereInput = <Schema extends AnySchema, Meta>(
 /**
  * Compiles an `OrderByInput` into an array of Drizzle SQL order-by clauses.
  * Supports single or multi-column ordering with ascending/descending direction,
- * plus relation keys: a field map for one relations, `{ _count }` for to-many.
+ * plus relation keys: a field map for one relations, `{ count }` for to-many.
  *
  * @typeParam Schema - The Drizzle schema type.
  * @typeParam Meta   - Custom metadata type.
@@ -1415,16 +1416,23 @@ const compileRelationOrder = <Schema extends AnySchema, Meta>(
 
 	const alias = `__better_order_${depth}`;
 	if (relation.kind !== 'one') {
+		const direction = isPlainObject(value)
+			? (value.count ?? value._count)
+			: undefined;
+		
 		if (
 			!isPlainObject(value) ||
-			(value._count !== 'asc' && value._count !== 'desc') ||
+			(direction !== 'asc' && direction !== 'desc') ||
 			Object.keys(value).length !== 1
 		)
 			throw invalidRelationOrder(
 				runtime,
 				key,
-				`Relation "${key}" on "${runtime.dbName}" is a to-many relation; sort it by { _count: 'asc' | 'desc' }.`,
+				`Relation "${key}" on "${runtime.dbName}" is a to-many relation; sort it by { count: 'asc' | 'desc' }.`,
 			);
+		
+		if ('_count' in value) warnLegacyCount();
+		
 		const count = buildRelationCount(
 			context,
 			relation,
@@ -1436,13 +1444,14 @@ const compileRelationOrder = <Schema extends AnySchema, Meta>(
 			clauses,
 			context.dialect,
 			wrap ? wrap(count) : count,
-			value._count,
+			direction,
 		);
 		return;
 	}
 
 	const target = getTableRuntime(context, relation.tableName);
-	if (!isPlainObject(value) || ('_count' in value && !target.columns._count))
+	if (!isPlainObject(value) || (('_count' in value && !target.columns._count) ||
+			('count' in value && !target.columns.count)))
 		throw invalidRelationOrder(
 			runtime,
 			key,
