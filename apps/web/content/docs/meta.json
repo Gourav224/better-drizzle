@@ -17,6 +17,7 @@
 		"querying/relations",
 		"querying/relation-filters",
 		"querying/pagination",
+		"querying/query-comments",
 		"---Write data---",
 		"writing/crud",
 		"writing/upsert",

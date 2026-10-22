@@ -35,7 +35,7 @@ The hash covers, in this order:
 
 1. the model's schema key (`users`)
 2. the operation (`findMany`, `count`, `paginate`, ...)
-3. the final arguments, after every plugin before hook and transform has run, except `cache` and `meta`
+3. the final arguments, after every plugin before hook and transform has run, except `cache`, `comment`, and `meta`
 4. the call's `tags` and `vary`
 5. the value returned by the plugin's `vary` option
 
@@ -52,6 +52,7 @@ Arguments are normalized before hashing:
 | `findMany({ where: { a: 1, b: 2 } })` / `findMany({ where: { b: 2, a: 1 } })` | yes | object keys are sorted |
 | `findMany({ cache: true })` / `findMany({ cache: { ttl: '1h' } })` | yes | `ttl`, `negativeTtl`, `refresh`, and `afterHooks` are not part of the key |
 | `findMany({ meta: { requestId: 'a' } })` / `findMany({ meta: { requestId: 'b' } })` | yes | `meta` is not part of the key |
+| `findMany({ comment: 'a' })` / `findMany({ comment: 'b' })` | yes | the query [comment](/docs/querying/query-comments) is not part of the key |
 | `findMany()` / `findFirst()` | no | different operation |
 | `findMany({ take: 10 })` / `findMany({ take: 20 })` | no | different arguments |
 | `findMany({ select: { id: true } })` / `findMany()` | no | different projection |

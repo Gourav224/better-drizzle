@@ -10,7 +10,7 @@ seoDescription: 'Prepare Drizzle ORM reads once with param() and .prepare(), the
 
 A prepared statement fixes the shape of a read once and runs it many times
 with new values. Mark each value with `param(name)`, call `.prepare()` on the
-read, and pass the values to `execute()`:
+read, and pass the values to `execute()`. A query [comment](/docs/querying/query-comments) is part of the SQL, so it is fixed at `prepare()` and cannot be a `param()`:
 
 ```ts tab="better-drizzle" tab-group="orm"
 import { param, type PreparedParams, type PreparedResult } from 'better-drizzle';

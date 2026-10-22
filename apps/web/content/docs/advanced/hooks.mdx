@@ -75,6 +75,7 @@ Hook return values are ignored. A hook that throws fails the call (a throwing be
 		table: { type: 'string', description: 'Schema key of the table.' },
 		args: { type: 'object', description: 'The call args, after plugin transforms.' },
 		meta: { type: 'Meta | undefined', description: 'Merged `$withContext(...)` and per-call `meta`.' },
+		comment: { type: 'string | undefined', description: 'The call\'s query comment. Before hooks change it by setting `args.comment`; see [query comments](/docs/querying/query-comments).' },
 		repository: { type: 'Delegate', description: 'The delegate for this table.' },
 		tableInstance: { type: 'Table', description: 'The Drizzle table object.' },
 		tableConfig: { type: 'object', description: 'Relational config for the table.' },

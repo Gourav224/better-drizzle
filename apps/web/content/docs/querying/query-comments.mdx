@@ -1,0 +1,109 @@
+---
+title: Query comments
+description: Tag the SQL of any delegate call with a comment so slow queries trace back to their origin.
+icon: MessageSquareText
+seoTitle: 'Query Comments - Trace Slow SQL'
+seoDescription: 'Add a comment option to delegate calls so the SQL carries a /* ... */ comment, visible in pg_stat_statements, slow query logs, and APM tools. Works on PostgreSQL, MySQL, and SQLite.'
+---
+
+Every delegate method accepts a `comment`. Better Drizzle prefixes it to each SQL statement the call runs, so the text shows up in `pg_stat_statements`, PlanetScale Query Insights, slow query logs, and APM tools.
+
+```ts tab="better-drizzle" tab-group="orm"
+await client.users.findMany({
+	where: { active: true },
+	comment: 'users.listActive',
+});
+// /* users.listActive */ select ... from "users" where ...
+
+await client.orders.update({
+	where: { id },
+	data: { status: 'paid' },
+	comment: "handler='stripe-webhook'",
+});
+```
+
+```ts tab="Drizzle" tab-group="orm"
+import { sql } from 'drizzle-orm';
+
+// Query builders cannot carry a comment, so a commented query has to be
+// written as raw SQL.
+await db.execute(
+	sql`/* users.listActive */ select * from ${users} where ${users.active} = true`,
+);
+```
+
+It works on PostgreSQL, MySQL, and SQLite, and is accepted by `findMany`, `findFirst`, `findOne`, `findUnique`, `count`, `exists`, `paginate`, `cursor`, `create`, `createMany`, `update`, `updateMany`, `updateEach`, `upsert`, `upsertMany`, `delete`, and `deleteMany`.
+
+## Every statement carries it
+
+The comment is added to all statements an operation runs, not only the first one:
+
+- relation loads from `include` and relation `select`
+- the `FOR UPDATE` read and the read-back after a write on MySQL
+- the count query of `paginate`
+- the statements of `explain()`
+
+Statements that a call does not own, such as `BEGIN` and `COMMIT` of a transaction you opened yourself, are not tagged.
+
+## Client default
+
+Set a default for every call. A call's own `comment` replaces it; the two are not joined.
+
+```ts
+const client = better(db, { comment: 'app=api' });
+
+await client.users.findMany(); // /* app=api */ select ...
+await client.users.findMany({ comment: 'users.list' }); // /* users.list */ select ...
+```
+
+## What is accepted
+
+The comment is validated before any SQL runs, and a bad value throws `INVALID_ARGS`:
+
+- It must be a string that is not empty or only whitespace.
+- It is at most 1024 characters.
+- It cannot contain control characters, including newlines and NUL.
+- A `*/` inside it is written as `* /`, the same as the `comment` of [raw SQL](/docs/advanced/raw-sql), so the comment cannot end early.
+
+Comments are not parameters. Do not put untrusted text in one, and prefer short, stable labels.
+
+<Callout type="warn" title="High-cardinality comments">
+	The comment is part of the SQL text. A value that changes on every request,
+	such as a request id, gives each call its own statement text, which defeats
+	statement caches and splits aggregates in `pg_stat_statements`. Tag by
+	call site or handler, not by request.
+</Callout>
+
+## Prepared statements
+
+A prepared statement is compiled once, so its comment is fixed at `prepare()`. Put `comment` in the arguments you prepare; it cannot be a `param()`.
+
+```ts
+const listActive = client.users
+	.findMany({ where: { active: true }, comment: 'users.listActive' })
+	.prepare();
+```
+
+## Hooks and plugins
+
+Hooks receive the current `ctx.comment`. A `before` hook or a plugin transform changes it by setting `args.comment`; the value that reaches the SQL is validated again. After and error hooks only read it.
+
+```ts
+const client = better(db, {
+	hooks: {
+		beforeQuery(ctx) {
+			ctx.args.comment = `${ctx.args.comment ?? 'app'}:${currentRoute()}`;
+		},
+	},
+});
+```
+
+The [cache plugin](/docs/plugins/cache-keys) ignores `comment`, so the same query with different comments shares one cache entry.
+
+## Runtimes
+
+Comments rely on `AsyncLocalStorage` from `node:async_hooks`, which Node, Bun, and Cloudflare Workers (with `nodejs_compat`) provide. On a runtime without it, a call that sets `comment` throws `OPERATION_ERROR`. Calls without a comment never load it and cost nothing extra.
+
+## Requiring comments
+
+The opt-in `requireQueryComment` rule of the [rules plugin](/docs/plugins/rules-reference) and the `better-drizzle/require-query-comment` [ESLint rule](/docs/plugins/eslint) report delegate calls without a comment. The client default counts for the runtime rule.

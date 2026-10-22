@@ -50,6 +50,10 @@ Accepted by `findMany`, `findFirst`, `findOne`, and `findUnique`:
 			description: 'Custom metadata forwarded to hooks and plugins.',
 			type: 'Record<string, unknown>',
 		},
+		comment: {
+			description: 'Comment prefixed to every SQL statement of the call, for tracing. Accepted by every delegate method; see [query comments](/docs/querying/query-comments).',
+			type: 'string',
+		},
 	}}
 />
 

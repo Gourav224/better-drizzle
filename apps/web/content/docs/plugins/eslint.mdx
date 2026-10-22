@@ -119,6 +119,12 @@ Rule IDs use the `better-drizzle/` prefix. The preset columns show the level eac
 | `better-drizzle/require-order-by-for-skip-locked` | `skipLocked` without `orderBy` | off | warn | error |
 | `better-drizzle/require-limit-for-skip-locked` | `skipLocked` without a limit | error | error | error |
 
+### Query comments
+
+| Rule | Reports | safe | recommended | strict |
+| --- | --- | --- | --- | --- |
+| `better-drizzle/require-query-comment` | a delegate call without a `comment`, or a literal one shorter than `minLength` | off | off | off |
+
 ### Raw SQL
 
 | Rule | Reports | safe | recommended | strict |
@@ -168,6 +174,7 @@ Rule options:
 | `max-limit` | `value`, `applyTo` |
 | `require-stable-order-by-for-cursor` | `requirePrimaryKeyInOrderBy` |
 | `max-include-depth` / `max-include-relations` | `value` |
+| `require-query-comment` | `minLength` |
 | `require-raw-comment` | `minLength` |
 | `require-raw-timeout` | `defaultTimeoutMs`, `maxTimeoutMs` |
 | `no-raw-mutation` | `allow` |

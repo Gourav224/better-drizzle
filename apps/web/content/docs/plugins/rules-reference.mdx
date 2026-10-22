@@ -57,6 +57,7 @@ The resolved limit is `take` or `limit`. With `noUnboundedFindMany`, `allowWithL
 | Rule | Fires when | Options |
 | --- | --- | --- |
 | `noRawUnsafe` | `$rawUnsafe` is called | none |
+| `requireQueryComment` | a model operation has no `comment` (the client default counts), or it is shorter than `minLength` | `minLength` (default `1`) |
 | `requireRawComment` | the raw call has no `comment`, or it is shorter than `minLength` | `minLength` (default `1`) |
 | `requireRawTimeout` | the raw call has no `timeoutMs`, or it is above `defaultTimeoutMs` or `maxTimeoutMs` | `defaultTimeoutMs`, `maxTimeoutMs` |
 | `noRawMutation` | the SQL starts with `insert`, `update`, `delete`, `replace`, `create`, `alter`, `drop`, or `truncate` | `allow`: statement prefixes to allow |
