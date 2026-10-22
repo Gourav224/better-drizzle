@@ -27,6 +27,7 @@ import {
 import {
 	noRawMutation,
 	noRawUnsafe,
+	requireQueryComment,
 	requireRawComment,
 	requireRawTimeout,
 } from './rules/raw';
@@ -69,6 +70,7 @@ const ruleModules = {
 		requireOrderByForPagination,
 	[ruleIdByRuntimeKey.requireOrderByForSkipLocked]:
 		requireOrderByForSkipLocked,
+	[ruleIdByRuntimeKey.requireQueryComment]: requireQueryComment,
 	[ruleIdByRuntimeKey.requireRawComment]: requireRawComment,
 	[ruleIdByRuntimeKey.requireRawTimeout]: requireRawTimeout,
 	[ruleIdByRuntimeKey.requireStableOrderByForCursor]:

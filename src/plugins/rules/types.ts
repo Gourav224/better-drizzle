@@ -426,6 +426,19 @@ export type RulesPluginOptions<
 	noRawUnsafe?: RuleSetting;
 
 	/**
+	 * Requires a `comment` on model operations. The client-level `comment`
+	 * default counts.
+	 *
+	 * Extra options:
+	 * - `minLength` -- minimum comment length (default `1`).
+	 */
+	requireQueryComment?: RuleSetting<
+		ModelRuleScope<TModel> & {
+			minLength?: number;
+		}
+	>;
+
+	/**
 	 * Requires a SQL comment on raw queries.
 	 *
 	 * Extra options:
@@ -875,6 +888,7 @@ export type OperationContext = {
 	path?: readonly string[];
 	query?: Record<string, unknown>;
 	queryText?: string;
+	queryComment?: string;
 	rawComment?: string;
 	rawTimeoutMs?: number;
 	select?: unknown;

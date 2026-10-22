@@ -1,5 +1,6 @@
 import {
 	getNumberProperty,
+	getObjectProperty,
 	getStringProperty,
 	isMutationQuery,
 	parseBetterCall,
@@ -45,6 +46,46 @@ export const requireRawComment = createRule({
 	},
 	message: 'Raw queries require a comment.',
 	name: 'require-raw-comment',
+	schema: [{ additionalProperties: true, type: 'object' }],
+});
+
+export const requireQueryComment = createRule({
+	create(context) {
+		const [options] = context.options as [
+			| {
+					minLength?: number;
+			  }
+			| undefined,
+		];
+		return {
+			CallExpression(node) {
+				const call = parseBetterCall(node);
+				if (call?.kind !== 'delegate') return;
+				// A spread may carry the comment, so there is nothing to claim.
+				const properties = (
+					call.query as { properties?: { type?: string }[] } | null
+				)?.properties;
+				if (properties?.some((entry) => entry.type === 'SpreadElement'))
+					return;
+				const property = getObjectProperty(call.query, 'comment');
+				if (property) {
+					// A dynamic comment cannot be measured, so only literals are checked.
+					const comment = getStringProperty(
+						call.query,
+						'comment',
+					)?.trim();
+					if (
+						comment === undefined ||
+						comment.length >= (options?.minLength ?? 1)
+					)
+						return;
+				}
+				context.report({ messageId: 'default', node });
+			},
+		};
+	},
+	message: 'Queries require a comment.',
+	name: 'require-query-comment',
 	schema: [{ additionalProperties: true, type: 'object' }],
 });
 

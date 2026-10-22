@@ -215,6 +215,26 @@ describe('better-drizzle/rules', () => {
 		ctx.close();
 	});
 
+	test('requires a query comment', async () => {
+		const ctx = createRulesContext({
+			requireQueryComment: { level: 'error', minLength: 5 },
+		});
+
+		await expect(
+			Promise.resolve(ctx.client.posts.findMany()),
+		).rejects.toThrow('Queries require a comment.');
+		await expect(
+			Promise.resolve(ctx.client.posts.findMany({ comment: 'ab' })),
+		).rejects.toThrow('Queries require a comment.');
+		await expect(
+			Promise.resolve(
+				ctx.client.posts.findMany({ comment: 'posts.list' }),
+			),
+		).resolves.toBeDefined();
+
+		ctx.close();
+	});
+
 	test('validates raw comment and timeout', async () => {
 		const ctx = createRulesContext({
 			requireRawComment: {

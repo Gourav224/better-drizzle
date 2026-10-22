@@ -404,4 +404,52 @@ client.repository('users').$withoutPlugins().findMany({
 			],
 		},
 	);
+
+	tester.run('require-query-comment', plugin.rules['require-query-comment'], {
+		invalid: [
+			{
+				code: `
+const client = {} as any;
+client.users.findMany({ where: { active: true } });
+`,
+				errors: [{ message: 'Queries require a comment.' }],
+			},
+			{
+				code: `
+const client = {} as any;
+client.users.findMany();
+`,
+				errors: [{ message: 'Queries require a comment.' }],
+			},
+			{
+				code: `
+const client = {} as any;
+client.users.update({ where: { id: 1 }, data: {}, comment: 'ab' });
+`,
+				errors: [{ message: 'Queries require a comment.' }],
+				options: [{ minLength: 5 }],
+			},
+		],
+		valid: [
+			{
+				code: `
+const client = {} as any;
+client.users.findMany({ where: { active: true }, comment: 'users.list' });
+`,
+			},
+			{
+				code: `
+const client = {} as any;
+client.users.findMany({ comment: route });
+`,
+				options: [{ minLength: 5 }],
+			},
+			{
+				code: `
+const client = {} as any;
+client.users.findMany({ ...shared, where: { active: true } });
+`,
+			},
+		],
+	});
 });

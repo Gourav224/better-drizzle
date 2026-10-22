@@ -617,6 +617,21 @@ const evaluators: Partial<Record<RuleKey, RuleEvaluator>> = {
 			'rawUnsafe is not allowed.',
 		);
 	},
+	requireQueryComment(context, options, emit) {
+		const rule = normalizeRule(options.requireQueryComment);
+		if (isRaw(context) || context.model === undefined) return;
+		if (!matchesModelScope(context, rule.options)) return;
+		const comment = context.queryComment?.trim();
+		emitIf(
+			!comment || comment.length < (rule.options.minLength ?? 1),
+			context,
+			emit,
+			rule.level,
+			'requireQueryComment',
+			'Queries require a comment.',
+			['comment'],
+		);
+	},
 	requireRawComment(context, options, emit) {
 		const rule = normalizeRule(options.requireRawComment);
 		if (!isRaw(context)) return;
@@ -1057,6 +1072,9 @@ const buildOperationContext = (
 		model: String(context.table),
 		operation,
 		orderBy: context.orderBy,
+		queryComment:
+			(context.args as Record<string, unknown>)?.comment ??
+			(context.options as { comment?: string } | undefined)?.comment,
 		select: context.select,
 		take: context.take,
 		transactionContext: context.transactionContext,
