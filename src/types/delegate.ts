@@ -452,6 +452,8 @@ export interface CreateArgs<
 	include?: IncludeInput<Schema, Name>;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -485,6 +487,8 @@ export interface UpdateArgs<
 	include?: IncludeInput<Schema, Name>;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -523,6 +527,8 @@ export interface CreateManyArgs<
 	batchSize?: number;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -553,6 +559,8 @@ export interface UpdateManyArgs<
 	select?: ScalarSelectInput<Schema, Name>;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -651,6 +659,8 @@ export interface UpdateEachArgs<
 	onEmpty?: 'return' | 'throw';
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -678,6 +688,8 @@ export interface DeleteManyArgs<
 	select?: ScalarSelectInput<Schema, Name>;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -708,6 +720,8 @@ export interface DeleteArgs<
 	include?: IncludeInput<Schema, Name>;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -755,6 +769,8 @@ export interface UpsertArgs<
 	include?: IncludeInput<Schema, Name>;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -930,6 +946,8 @@ export interface UpsertManyArgs<
 	where?: WhereArg<Schema, Name>;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 type RepositoryKey<Schema extends AnySchema> =

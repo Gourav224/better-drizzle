@@ -79,6 +79,7 @@ export const buildHookContext = <
 		afterCommit: registerAfterCommit,
 		afterRollback: registerAfterRollback,
 		args,
+		comment: (args as { comment?: string } | undefined)?.comment,
 		db: context.db,
 		isInTransaction: Boolean(context.transaction),
 		meta: getMeta(context, args),

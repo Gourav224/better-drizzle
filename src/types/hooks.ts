@@ -85,6 +85,11 @@ type HookBaseContext<
 	/** Values recorded by plugin intercepts; set on after hooks only. */
 	annotations?: Readonly<Record<string, unknown>>;
 	args: Args;
+	/**
+	 * The call's `comment` at the time the hook runs. Before hooks and plugin
+	 * transforms change it by setting `args.comment`.
+	 */
+	comment?: string;
 	db: unknown;
 	isInTransaction: boolean;
 	meta: Meta | undefined;
@@ -967,6 +972,8 @@ export interface BetterClientOptions<
 	locks?: import('./query').BetterLockClientOptions;
 	/** Optional raw SQL configuration. */
 	raw?: RawClientOptions;
+	/** Default `comment` for every delegate call. A call's own `comment` replaces it. */
+	comment?: string;
 	/** Optional lifecycle hooks. */
 	hooks?: BetterClientHooks<Schema, Meta, Plugins>;
 }

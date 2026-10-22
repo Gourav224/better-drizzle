@@ -32,6 +32,7 @@ import type {
 } from '../../types';
 import { BetterDrizzleError, BetterDrizzleErrorCode } from '../errors';
 import { compileWhereInput, countRows } from '../query';
+import { hasComment, runWithComment } from './comment';
 import { getTableRuntime } from './context';
 import { explainOperation } from './explain';
 import {
@@ -197,6 +198,12 @@ export const createModelDelegate = <
 		Plugins
 	>;
 
+	const withComment = <Result>(
+		args: unknown,
+		operation: string,
+		run: () => Result,
+	) => runWithComment(context, args, operation, name, run);
+
 	const assertTransactionNotAborted = () => {
 		const abortError = context.transaction?.abortError;
 
@@ -261,7 +268,12 @@ export const createModelDelegate = <
 				.byKind[kind].hasIntercepts
 				? { annotations: undefined, skipAfterHooks: false }
 				: undefined;
-			const query = () => runSessionSql(context, execute);
+			const query = () =>
+				hasComment(context, operationArgs)
+					? withComment(operationArgs, spec.action, () =>
+							runSessionSql(context, execute),
+						)
+					: runSessionSql(context, execute);
 			const result = await executeOperation({
 				action: spec.action,
 				args: operationArgs,
@@ -389,7 +401,13 @@ export const createModelDelegate = <
 					: undefined,
 				context,
 				operation: () =>
-					runSessionSql(context, () => spec.operation(args)),
+					hasComment(context, args)
+						? withComment(args, spec.action, () =>
+								runSessionSql(context, () =>
+									spec.operation(args),
+								),
+							)
+						: runSessionSql(context, () => spec.operation(args)),
 				runtime,
 				tableName: name,
 			});
@@ -544,13 +562,29 @@ export const createModelDelegate = <
 			operationArgs: Record<string, unknown>,
 			override?: { value: unknown },
 		): Plan => {
-			const plan = prepareRead(
-				context,
-				tableName,
-				kind,
-				operationArgs,
-				statementName,
-			);
+			const commented = hasComment(context, operationArgs);
+			const plan = commented
+				? withComment(operationArgs, kind, () =>
+						prepareRead(
+							context,
+							tableName,
+							kind,
+							operationArgs,
+							statementName,
+						),
+					)
+				: prepareRead(
+						context,
+						tableName,
+						kind,
+						operationArgs,
+						statementName,
+					);
+			// Relation stages build their queries on every execution.
+			const run: Plan['run'] = commented
+				? (values) =>
+						withComment(operationArgs, kind, () => plan.run(values))
+				: plan.run;
 			return {
 				args: operationArgs,
 				check: plan.check,
@@ -559,7 +593,7 @@ export const createModelDelegate = <
 							plan.check(values);
 							return override.value;
 						}
-					: plan.run,
+					: run,
 			};
 		};
 
@@ -703,12 +737,14 @@ export const createModelDelegate = <
 				const current = plan ?? (await (pending as Promise<Plan>));
 				current.check(values ?? EMPTY_VALUES);
 				return runSessionSql(context, () =>
-					explainOperation(
-						context,
-						tableName,
-						kind,
-						fillParams(current.args, values ?? EMPTY_VALUES),
-						options,
+					withComment(current.args, kind, () =>
+						explainOperation(
+							context,
+							tableName,
+							kind,
+							fillParams(current.args, values ?? EMPTY_VALUES),
+							options,
+						),
 					),
 				);
 			},
@@ -738,12 +774,14 @@ export const createModelDelegate = <
 								args,
 							);
 							return runSessionSql(context, () =>
-								explainOperation(
-									context,
-									tableName,
-									operation,
-									resolved,
-									options,
+								withComment(resolved, operation, () =>
+									explainOperation(
+										context,
+										tableName,
+										operation,
+										resolved,
+										options,
+									),
 								),
 							);
 						})(),

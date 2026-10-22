@@ -841,6 +841,7 @@ export const createResultSchema = (
 };
 
 export const createOperationMetaShape = () => ({
+	comment: z.string().optional(),
 	meta: z.unknown().optional(),
 	validate: z.boolean().optional(),
 });

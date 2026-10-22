@@ -228,6 +228,32 @@ describe.skipIf(!MYSQL_URL)('Drizzle 1.x migration (MySQL)', () => {
 		expect(created).toMatchObject({ id: 2, value: 1 });
 	});
 
+	test('comment prefixes the read-back and the locking read of a write', async () => {
+		const queries: string[] = [];
+		const logged = better(
+			drizzle({
+				client: connection,
+				logger: { logQuery: (query) => queries.push(query) },
+				mode: 'default',
+				relations,
+			}),
+		);
+
+		await logged.tags.create({
+			comment: 'tags.create',
+			data: { label: 'Commented', slug: 'commented' },
+		});
+		await logged.tags.update({
+			comment: 'tags.update',
+			data: { label: 'Changed' },
+			where: { slug: 'commented' },
+		});
+		expect(queries.length).toBeGreaterThan(2);
+		expect(queries.every((query) => query.startsWith('/* tags.'))).toBe(
+			true,
+		);
+	});
+
 	test('upsert by the only unique key next to an auto-increment id is native', async () => {
 		const queries: string[] = [];
 		const logged = better(

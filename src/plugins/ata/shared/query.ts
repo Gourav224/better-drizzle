@@ -48,6 +48,7 @@ const LOCK_MODES = ['keyShare', 'noKeyUpdate', 'share', 'update'] as const;
 
 /** `meta` is the caller's own request-scoped context, so nothing is claimed about it. */
 const META_PROPERTIES: Record<string, JsonSchema> = {
+	comment: { type: 'string' },
 	meta: {},
 	validate: { type: 'boolean' },
 };

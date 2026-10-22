@@ -171,6 +171,11 @@ describe('createQueryArgsSchema', () => {
 		expect(ok({ meta: { userId: 1, trace: 'abc' } })).toBe(true);
 	});
 
+	test('comment is a string', () => {
+		expect(ok({ comment: 'users.list' })).toBe(true);
+		expect(ok({ comment: 5 })).toBe(false);
+	});
+
 	test('a misspelled argument is refused', () => {
 		expect(ok({ wher: { active: true } })).toBe(false);
 		expect(ok({ orderby: { name: 'asc' } })).toBe(false);

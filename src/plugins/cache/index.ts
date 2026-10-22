@@ -53,8 +53,8 @@ const READ_KINDS = new Set([
 	'paginate',
 ]);
 const SINGLE_KINDS = new Set(['findFirst', 'findOne', 'findUnique']);
-// Keys that never change a result: the cache setting itself and hook meta.
-const IGNORED_ARGS = new Set(['cache', 'meta']);
+// Keys that never change a result: the cache setting itself, the query comment, and hook meta.
+const IGNORED_ARGS = new Set(['cache', 'comment', 'meta']);
 
 const hasKeys = (value: object) => {
 	for (const _ in value) return true;

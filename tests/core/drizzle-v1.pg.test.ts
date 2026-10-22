@@ -323,6 +323,31 @@ describe.skipIf(!DATABASE_URL)('Drizzle 1.x migration (PostgreSQL)', () => {
 			}
 		});
 
+		test('comment prefixes every statement of reads and writes', async () => {
+			const queries: string[] = [];
+			const logged = better(
+				drizzle({
+					client: pg,
+					logger: { logQuery: (query) => queries.push(query) },
+					relations,
+				}),
+			);
+
+			await logged.accounts.findMany({
+				comment: 'accounts.list',
+				include: { invoices: true },
+			});
+			await logged.accounts.update({
+				comment: 'accounts.rename',
+				data: { name: 'Renamed' },
+				where: { id: 1 },
+			});
+			expect(queries.length).toBeGreaterThan(2);
+			expect(
+				queries.every((query) => query.startsWith('/* accounts.')),
+			).toBe(true);
+		});
+
 		test('upsert by a unique column uses one ON CONFLICT statement', async () => {
 			const queries: string[] = [];
 			const logged = better(

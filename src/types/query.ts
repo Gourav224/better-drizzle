@@ -168,7 +168,10 @@ type SelectRelationArg<
 > =
 	| true
 	// Nested relation stages run as separate queries, so they cannot hold a row lock.
-	| (QueryArgs<Schema, RelatedNameFor<Schema, Name, RelationName>> & {
+	| (Omit<
+			QueryArgs<Schema, RelatedNameFor<Schema, Name, RelationName>>,
+			'comment'
+	  > & {
 			lock?: never;
 	  });
 
@@ -497,6 +500,8 @@ export interface QueryArgs<
 	lock?: LockOption<Schema>;
 	/** Custom metadata forwarded to hooks. */
 	meta?: Meta;
+	/** Block comment prefixed to every SQL statement this call runs, for tracing. */
+	comment?: string;
 }
 
 /**
@@ -521,7 +526,10 @@ export type CountArgs<
 	Schema extends AnySchema,
 	Name extends TableKey<Schema>,
 	Meta = BetterMeta,
-> = Pick<QueryArgs<Schema, Name, Meta>, 'where' | 'cursor' | 'meta'>;
+> = Pick<
+	QueryArgs<Schema, Name, Meta>,
+	'where' | 'cursor' | 'meta' | 'comment'
+>;
 
 /**
  * Arguments for the `exists` operation.
