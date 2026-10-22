@@ -1074,7 +1074,8 @@ const buildOperationContext = (
 		orderBy: context.orderBy,
 		queryComment:
 			(context.args as Record<string, unknown>)?.comment ??
-			(context.options as { comment?: string } | undefined)?.comment,
+			(context as unknown as { options?: { comment?: string } }).options
+				?.comment,
 		select: context.select,
 		take: context.take,
 		transactionContext: context.transactionContext,

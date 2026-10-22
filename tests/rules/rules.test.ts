@@ -235,6 +235,20 @@ describe('better-drizzle/rules', () => {
 		ctx.close();
 	});
 
+	test('the client comment default satisfies requireQueryComment', async () => {
+		const base = createTestContext();
+		const client = better(base.raw, {
+			comment: 'app=test',
+			plugins: [rules({ requireQueryComment: 'error' })],
+		});
+
+		await expect(
+			Promise.resolve(client.posts.findMany()),
+		).resolves.toBeDefined();
+
+		base.close();
+	});
+
 	test('validates raw comment and timeout', async () => {
 		const ctx = createRulesContext({
 			requireRawComment: {
