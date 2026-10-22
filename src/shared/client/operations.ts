@@ -1401,22 +1401,22 @@ const insertsWhere = (
 	return true;
 };
 
-// The key whose conflict hits the row `where` finds: the primary key when
-// `where` sets it to the `create` values, else a unique key that `where`
-// alone pins to the `create` values.
+// The key whose conflict hits the row `where` finds: the primary key or a
+// unique key that `where` alone pins to the `create` values. Any other
+// condition in `where` takes the read-then-write path.
 const getConflictFields = (
 	runtime: TableRuntime,
 	where: unknown,
 	create: Record<string, unknown>,
 ): readonly string[] | undefined => {
 	if (!isSimpleRecord(where)) return;
-	const primaryKey = runtime.primaryKeyFields;
-	if (primaryKey.length && insertsWhere(primaryKey, where, create))
-		return primaryKey;
-
 	let size = 0;
 	let first = '';
 	for (const key in where) if (size++ === 0) first = key;
+	if (size === 0) return;
+	const primaryKey = runtime.primaryKeyFields;
+	if (primaryKey.length === size && insertsWhere(primaryKey, where, create))
+		return primaryKey;
 	if (size === 1 && runtime.columns[first]?.isUnique) {
 		const value = where[first];
 		if (value != null && value === create[first]) return [first];
@@ -3232,11 +3232,29 @@ export const deleteManyRecords = async <Schema extends AnySchema, Meta>(
 	return { count: affectedCount };
 };
 
+// A where that compiles to no condition would match an arbitrary row.
+const assertUpsertWhere = <Schema extends AnySchema, Meta>(
+	context: RuntimeContext<Schema, Meta>,
+	runtime: TableRuntime,
+	tableName: BetterTableKey<Schema>,
+	where: unknown,
+) => {
+	if (!getPredicate(context, runtime, tableName, where))
+		throw new BetterDrizzleError({
+			code: BetterDrizzleErrorCode.InvalidArgs,
+			message: 'Upsert requires a where with at least one condition.',
+			operation: 'upsert',
+			table: runtime.dbName,
+		});
+};
+
 /**
  * Upserts a record: inserts it if it does not exist, or updates it if
  * it does. When the database supports `ON CONFLICT DO UPDATE` and the
- * where-clause targets the primary key, a native conflict-update is used.
- * Otherwise falls back to a read-then-write flow.
+ * where-clause holds only the primary key or a unique key, a native
+ * conflict-update is used.
+ * Otherwise falls back to a read-then-write flow. An empty where throws
+ * `INVALID_ARGS`, since it would match an arbitrary row.
  *
  * @typeParam Schema - The Drizzle schema type.
  * @typeParam Meta   - Custom metadata type.
@@ -3267,6 +3285,7 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 		hasRelationWrites(runtime, createData) ||
 		hasRelationWrites(runtime, args.update)
 	) {
+		assertUpsertWhere(context, runtime, tableName, args.where);
 		const matches = await findManyRecords(context, tableName, {
 			take: 2,
 			where: args.where,
@@ -3375,6 +3394,7 @@ export const upsertRecord = async <Schema extends AnySchema, Meta>(
 		);
 	}
 
+	assertUpsertWhere(context, runtime, tableName, args.where);
 	const existing = await findFirstRecord(context, tableName, {
 		where: args.where,
 	});

@@ -1244,6 +1244,57 @@ describe('upsert', () => {
 			sqlite.close();
 		});
 
+		test('a primary key plus a mismatched predicate does not update the conflicting row', async () => {
+			const { db, queries, sqlite } = setup();
+			await expect(
+				Promise.resolve(
+					db.accounts.upsert({
+						create: {
+							email: 'a@x.com',
+							hits: 0,
+							id: 1,
+							name: 'Ignored',
+							slug: 'a',
+							tenant: 1,
+						},
+						update: { hits: 5 },
+						where: { id: 1, hits: 3 },
+					}),
+				),
+			).rejects.toThrow(/Failed query: insert into "accounts"/);
+			expect(
+				await db.accounts.findUnique({ where: { id: 1 } }),
+			).toMatchObject({
+				hits: 0,
+				id: 1,
+			});
+			expect(queries.some((query) => query.includes('on conflict'))).toBe(
+				false,
+			);
+			sqlite.close();
+		});
+
+		test('a primary key plus a matching predicate updates the matching row', async () => {
+			const { db, queries, sqlite } = setup();
+			const updated = await db.accounts.upsert({
+				create: {
+					email: 'a@x.com',
+					hits: 0,
+					id: 1,
+					name: 'Ignored',
+					slug: 'a',
+					tenant: 1,
+				},
+				update: { hits: 5 },
+				where: { id: 1, hits: 0 },
+			});
+			expect(updated).toMatchObject({ hits: 5, id: 1 });
+			expect(queries.some((query) => query.includes('on conflict'))).toBe(
+				false,
+			);
+			sqlite.close();
+		});
+
 		test('a where without the primary key is not treated as a primary key conflict', async () => {
 			const { db, sqlite } = setup();
 			const updated = await db.accounts.upsert({
@@ -1259,6 +1310,67 @@ describe('upsert', () => {
 			});
 			expect(updated).toMatchObject({ hits: 3, id: 1 });
 			expect(await db.accounts.count()).toBe(1);
+			sqlite.close();
+		});
+
+		test('a where without conditions is rejected instead of matching an arbitrary row', async () => {
+			const { db, queries, sqlite } = setup();
+			const create = {
+				email: 'b@x.com',
+				hits: 0,
+				name: 'B',
+				slug: 'b',
+				tenant: 1,
+			};
+			for (const where of [
+				{},
+				{ name: undefined },
+				{ OR: [{ email: undefined }] },
+			])
+				await expect(
+					Promise.resolve(
+						db.accounts.upsert({
+							create,
+							update: { hits: 9 },
+							where,
+						}),
+					),
+				).rejects.toMatchObject({
+					code: BetterDrizzleErrorCode.InvalidArgs,
+				});
+			expect(queries).toEqual([]);
+			expect(sqlite.query('SELECT id, hits FROM accounts').all()).toEqual(
+				[{ hits: 0, id: 1 }],
+			);
+			sqlite.close();
+		});
+
+		test('a where without conditions is rejected on a table without a primary key', async () => {
+			const sqlite = new Database(':memory:');
+			sqlite.exec(
+				'CREATE TABLE logs (n INTEGER NOT NULL); INSERT INTO logs VALUES (1);',
+			);
+			const logs = sqliteTable('logs', { n: integer('n').notNull() });
+			const queries: string[] = [];
+			const db = better(
+				drizzle({
+					client: sqlite,
+					logger: { logQuery: (query) => queries.push(query) },
+					relations: defineRelations({ logs }),
+				}),
+			);
+			await expect(
+				Promise.resolve(
+					db.logs.upsert({
+						create: { n: 0 },
+						update: { n: 2 },
+						where: {},
+					}),
+				),
+			).rejects.toMatchObject({
+				code: BetterDrizzleErrorCode.InvalidArgs,
+			});
+			expect(queries).toEqual([]);
 			sqlite.close();
 		});
 	});
